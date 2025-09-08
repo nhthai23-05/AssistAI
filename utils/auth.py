@@ -72,3 +72,48 @@ class GoogleAuth:
         """Trả về Google Sheets service object"""
         creds = self.authenticate()
         return build('sheets', 'v4', credentials=creds)
+
+if __name__ == "__main__":
+    print("🔐 Testing Google Authentication...")
+    
+    try:
+        # Tạo instance của GoogleAuth
+        auth = GoogleAuth()
+        
+        # Test authenticate method
+        print("📝 Starting authentication process...")
+        creds = auth.authenticate()
+        
+        if creds and creds.valid:
+            print("✅ Authentication successful!")
+            print(f"📧 Authenticated user: {creds.service_account_email if hasattr(creds, 'service_account_email') else 'User account'}")
+            
+            # Test services
+            print("\n🗓️ Testing Calendar service...")
+            calendar_service = auth.get_calendar_service()
+            print("✅ Calendar service created successfully!")
+            
+            print("\n📊 Testing Sheets service...")
+            sheets_service = auth.get_sheets_service()
+            print("✅ Sheets service created successfully!")
+            
+            # Optional: Test actual API call
+            print("\n📋 Testing Calendar API call...")
+            try:
+                calendar_list = calendar_service.calendarList().list().execute()
+                print(f"✅ Found {len(calendar_list.get('items', []))} calendars")
+                for calendar in calendar_list.get('items', [])[:3]:  # Show first 3
+                    print(f"   📅 {calendar.get('summary', 'Unknown')}")
+            except Exception as api_error:
+                print(f"⚠️ API call failed: {api_error}")
+        else:
+            print("❌ Authentication failed!")
+            
+    except FileNotFoundError:
+        print("❌ Error: credentials.json not found!")
+        print("💡 Make sure you have downloaded OAuth credentials from Google Cloud Console")
+        print("💡 Place the file at: config/credentials.json")
+        
+    except Exception as e:
+        print(f"❌ Error during authentication: {e}")
+        print("💡 Check your credentials file and internet connection")
