@@ -10,7 +10,7 @@ Chức năng:
 - Secure token storage (encryption)
 - Permission scope management
 - Authentication error handling
-Dependencies: utils.config
+Dependencies: None (base utility)
 """
 """
 AUTH.PY - Google OAuth2 Authentication Flow
