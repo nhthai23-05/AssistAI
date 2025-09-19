@@ -64,9 +64,9 @@ class ConfigManager:
     
     def __init__(self, config_file: Optional[str] = None):
         self.project_root = Path(__file__).parent.parent
-        self.config_file = config_file or self.project_root / "settings.json"
-        self.credentials_file = self.project_root / "credentials.json"
-        self.token_file = self.project_root / "token.json"
+        self.config_file = config_file or self.project_root / "config" / "settings.json"
+        self.credentials_file = self.project_root / "config" / "credentials.json"
+        self.token_file = self.project_root / "config" / "token.json"
         
         # Desktop app luôn development mode
         self.environment = Environment.DEVELOPMENT
@@ -77,7 +77,26 @@ class ConfigManager:
         self._setup_logging()
     
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration for desktop app"""
+        """Load configuration từ settings.json hoặc tạo mới nếu chưa có"""
+        
+        # Nếu chưa có settings.json, tạo file mới
+        if not self.config_file.exists():
+            self._create_default_config()
+        
+        # Load settings.json
+        try:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+                return config_data
+        except Exception as e:
+            logging.error(f"Không thể load settings.json: {e}")
+            # Tạo lại config mặc định nếu file bị lỗi
+            self._create_default_config()
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    
+    def _create_default_config(self) -> None:
+        """Tạo file settings.json mặc định"""
         default_config = {
             "app": {
                 "name": "AssistAI Desktop",
@@ -109,26 +128,14 @@ class ConfigManager:
             }
         }
         
-        # Load user settings nếu có
-        if self.config_file.exists():
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    user_config = json.load(f)
-                    # Deep merge với default config
-                    self._deep_merge(default_config, user_config)
-            except Exception as e:
-                logging.warning(f"Không thể load settings file: {e}")
+        # Tạo config directory nếu chưa có
+        self.config_file.parent.mkdir(exist_ok=True)
         
-        # Không cần environment variables cho desktop app
-        return default_config
-    
-    def _deep_merge(self, default_dict: Dict, update_dict: Dict) -> None:
-        """Deep merge hai dictionaries"""
-        for key, value in update_dict.items():
-            if key in default_dict and isinstance(default_dict[key], dict) and isinstance(value, dict):
-                self._deep_merge(default_dict[key], value)
-            else:
-                default_dict[key] = value
+        # Lưu file settings.json
+        with open(self.config_file, 'w', encoding='utf-8') as f:
+            json.dump(default_config, f, indent=2, ensure_ascii=False)
+        
+        logging.info(f"Created default settings.json at {self.config_file}")
     
     def _validate_config(self) -> None:
         """Validate configuration settings"""

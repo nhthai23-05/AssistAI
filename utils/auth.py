@@ -18,19 +18,24 @@ AUTH.PY - Google OAuth2 Authentication Flow
 """
 import os
 import json
+import google
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 class GoogleAuth:
-    def __init__(self, credentials_file="config/credentials.json"):
-        self.credentials_file = credentials_file
-        self.token_file = "config/token.json"  # File lưu token sau khi auth
-        self.scopes = [
-            'https://www.googleapis.com/auth/calendar',
-            'https://www.googleapis.com/auth/spreadsheets'
-        ]
+    def __init__(self, credentials_file=None, token_file=None, scopes=None):
+        # Import config ở đây để tránh circular import
+        from utils.config import get_config
+        
+        config = get_config()
+        google_config = config.google
+        
+        # Dùng config từ settings.json
+        self.credentials_file = credentials_file or google_config.credentials_file
+        self.token_file = token_file or google_config.token_file
+        self.scopes = scopes or google_config.scopes
     
     def authenticate(self):
         """
@@ -72,48 +77,3 @@ class GoogleAuth:
         """Trả về Google Sheets service object"""
         creds = self.authenticate()
         return build('sheets', 'v4', credentials=creds)
-
-if __name__ == "__main__":
-    print("🔐 Testing Google Authentication...")
-    
-    try:
-        # Tạo instance của GoogleAuth
-        auth = GoogleAuth()
-        
-        # Test authenticate method
-        print("📝 Starting authentication process...")
-        creds = auth.authenticate()
-        
-        if creds and creds.valid:
-            print("✅ Authentication successful!")
-            print(f"📧 Authenticated user: {creds.service_account_email if hasattr(creds, 'service_account_email') else 'User account'}")
-            
-            # Test services
-            print("\n🗓️ Testing Calendar service...")
-            calendar_service = auth.get_calendar_service()
-            print("✅ Calendar service created successfully!")
-            
-            print("\n📊 Testing Sheets service...")
-            sheets_service = auth.get_sheets_service()
-            print("✅ Sheets service created successfully!")
-            
-            # Optional: Test actual API call
-            print("\n📋 Testing Calendar API call...")
-            try:
-                calendar_list = calendar_service.calendarList().list().execute()
-                print(f"✅ Found {len(calendar_list.get('items', []))} calendars")
-                for calendar in calendar_list.get('items', [])[:3]:  # Show first 3
-                    print(f"   📅 {calendar.get('summary', 'Unknown')}")
-            except Exception as api_error:
-                print(f"⚠️ API call failed: {api_error}")
-        else:
-            print("❌ Authentication failed!")
-            
-    except FileNotFoundError:
-        print("❌ Error: credentials.json not found!")
-        print("💡 Make sure you have downloaded OAuth credentials from Google Cloud Console")
-        print("💡 Place the file at: config/credentials.json")
-        
-    except Exception as e:
-        print(f"❌ Error during authentication: {e}")
-        print("💡 Check your credentials file and internet connection")
