@@ -1,3 +1,5 @@
-setup/
-.env
-config/
+backend/config/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-electron/
+frontend/package-lock.json
