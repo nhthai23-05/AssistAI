@@ -2,6 +2,8 @@
   {
       "name": "assistai-desktop",
       "version": "0.1.0",
+      "description": "Project cá nhân tích hợp Agent vào Calendar và Sheet",
+      "author": "hoangthai0203@gmail.com",
       "private": true,
       "main": "electron/main.js",
       "dependencies": {
@@ -86,7 +88,7 @@
                   }
               ],
               "verifyUpdateCodeSignature": false,
-              "requestedExecutionLevel": "asInvoker",
+              "requestedExecutionLevel": "requireAdministrator",
               "sign": null
           },
           "mac": {

@@ -1,1 +1,0 @@
-12:01 8/Sep: Hoàn thành và test xong auth.py. Thêm gmail của mình vào test user trên google cloud console, hoàn thành authentication để chạy chỉ với dự án này và với gmail hoangthai0203@gmail.com
