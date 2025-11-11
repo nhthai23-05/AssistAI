@@ -8,3 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeWindow: () => ipcRenderer.send('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized')
 });
+
+contextBridge.exposeInMainWorld('api', {
+  sendMessage: (message) => ipcRenderer.invoke('chat:send', message),
+  getEvents: () => ipcRenderer.invoke('calendar:getEvents'),
+});

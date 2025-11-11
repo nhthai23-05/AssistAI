@@ -75,3 +75,17 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+ipcMain.handle('chat:send', async (event, message) => {
+  const res = await fetch('http://127.0.0.1:8000/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message })
+  });
+  return res.json();
+});
+
+ipcMain.handle('calendar:getEvents', async () => {
+  const res = await fetch('http://127.0.0.1:8000/api/calendar/events');
+  return res.json();
+});
