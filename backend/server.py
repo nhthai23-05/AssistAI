@@ -2,12 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from pathlib import Path
-from services.calendar_service import list_events
-from services.ai_service import chat_completion
+from routers import auth, calendar, chat
 
 app = FastAPI(title="AssistAI Backend")
 
-# CORS cho Electron
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -20,6 +19,11 @@ app.add_middleware(
 CONFIG_PATH = Path(__file__).parent / "config"
 settings = json.loads((CONFIG_PATH / "settings.json").read_text())
 
+# Include routers
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(calendar.router, prefix="/api/calendar", tags=["Calendar"])
+app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+
 @app.get("/")
 async def root():
     return {"message": "AssistAI Backend Running"}
@@ -27,17 +31,6 @@ async def root():
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
-
-@app.get("/api/calendar/events")
-async def get_events(max_results: int = 10):
-    events = await list_events(max_results)
-    return {"events": events}
-
-@app.post("/api/chat")
-async def chat(request: dict):
-    message = request.get("message", "")
-    reply = await chat_completion(message)
-    return {"reply": reply}
 
 if __name__ == "__main__":
     import uvicorn
