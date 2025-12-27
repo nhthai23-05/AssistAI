@@ -1,6 +1,6 @@
 # AssistAI Desktop Assistant
 Ứng dụng trợ lý AI tích hợp quản lý lịch làm việc và bảng thu chi cá nhân với Google Sheet và Google Calendar.
-Hiện tại dự án đang trong giai đoạn hoàn thành và kiểm tra lại Frontend, sau đó sẽ tiếp tục với Backend
+Hiện tại dự án đang xây dựng Backend trước, sau đó sẽ phát triển Frontend với Flet
 ## 1. Tên đề tài
 
 **AssistAI Desktop**
@@ -64,28 +64,28 @@ Xây dựng ứng dụng desktop AI assistant đa chức năng giúp người d�
 ## 6. Phạm vi dự án
 - Desktop application cho Windows
 - Tích hợp OpenAI, Google Calendar, Google Sheets
-- Modern UI với Tailwind + shadcn/ui
+- Modern UI với Flet framework
 
 
 ## 7. Các vấn đề cần giải quyết
 ### 7.1. Vấn đề Backend
 
-#### IPC Communication
-- Đồng bộ dữ liệu giữa Electron main process và renderer process
-- Đảm bảo type-safe cho các IPC calls
-- Xử lý errors và timeout cho IPC communication
+#### API Design
+- Thiết kế RESTful API rõ ràng, dễ sử dụng
+- Đảm bảo consistency trong response format
+- Xử lý errors và status codes đúng chuẩn
 
 #### OAuth Flow
 - Quản lý token lifecycle (refresh, expire) --> Hiện tại đang giải quyết bằng việc để Project là Production trên GG Cloud Console
 - Lưu trữ credentials an toàn trong local storage
 
 #### State Management
-- Quản lý state giữa các modules
-- Đồng bộ state giữa UI và backend
+- Quản lý session và user state
+- Cache dữ liệu để tối ưu performance
 
 #### Error Handling
-- Thông báo lỗi khi người dùng tương tác sai
-- Logging errors
+- Xử lý và trả về lỗi có ý nghĩa cho Frontend
+- Logging errors để debug
 
 #### Data Persistence
 - Lưu trữ chat history trong local storage
@@ -93,61 +93,48 @@ Xây dựng ứng dụng desktop AI assistant đa chức năng giúp người d�
 - Data migration và backup strategy
 
 ### 7.2. Vấn đề Frontend
+#### UI/UX Design
+- Thiết kế giao diện đơn giản, dễ sử dụng
+- Responsive layout cho các kích thước màn hình khác nhau
+- Consistent design language
+
 #### Loading States
 - Hiển thị progress cho các task
-- Skeleton screens cho data fetching
+- Loading indicators cho API calls
 - Optimistic UI updates
-
-#### Offline Mode (đang cân nhắc)
-- Xử lý khi mất kết nối internet
-- Cache data để sử dụng offline
-- Sync khi reconnect
 
 #### Navigation
 - Chuyển đổi mượt giữa các modules
-- Breadcrumb navigation
+- Navigation menu rõ ràng
 
 #### Notifications
 - Thông báo không làm gián đoạn workflow
 - Priority levels cho notifications
 
 ## 8. Dự kiến hướng giải quyết
-### 8.1. Frontend Architecture
 
-#### Công nghệ sử dụng
-- **Framework**: Electron với React
-- **Language**: TypeScript
-- **Build Tool**: Vite
-- **Styling**: Tailwind CSS + shadcn/ui
-- **State Management**: React Context API
-- **IPC**: Type-safe preload bridge
+### 8.1. Workflow phát triển
+**Phase 1: Backend Development (Hiện tại)**
+1. Xây dựng FastAPI server với các endpoints cơ bản
+2. Tích hợp Google OAuth 2.0 cho Calendar và Sheets
+3. Tích hợp OpenAI API
+4. Implement các Service layers (AI, Calendar, Sheets)
+5. Testing các endpoints với Postman/Thunder Client
+6. Hoàn thiện error handling và logging
 
-#### Giải thích lý do lựa chọn
-- **Framework**:
-- Dễ mở rộng ra các hệ điều hành khác. Bắt đầu với Windows và mở rộng ra MacOS và Linux dễ dàng hơn
-- React có nhiều thư viện để triển khai dự án, triển khai thành Desktop App dễ hơn
-
-- **Build tool**:
-- Tốc độ build và reload nhanh
-- Hỗ trợ Electron và React tốt nhất
-
-- **Styling**:
-- shadcn/ui có design đa dạng, dễ triển khai, nhiều components. Phù hợp nhất cho UI development với người mới bắt đầu
-- Tailwind có performance tốt, không cần runtime
-
-- **State Management**:
-- Giải thích về State Management: Nó là 1 thành phần của dự án, nó là cách quản lý dữ liệu và trạng thái của ứng dụng.
-- React Context API dễ hiểu, dễ học, chỉ có 4-5 modules nên dễ cho người mới bắt đầu
-
-- **IPC**:
-- IPC (Inter-Process Communication) chính là cách mà 2 phần của Electron app nói chuyện với nhau:
-  - Phần giao diện: Renderer Process
-  - Phần hệ thống: Main Process
+**Phase 2: Frontend Development (Sau này)**
+1. Thiết kế UI layout với Flet
+2. Kết nối Frontend với Backend qua HTTP requests
+3. Implement các modules chính (Chat, Calendar, Sheets)
+4. Xử lý state management và navigation
+5. Testing và debugging
+6. Package thành desktop app
 
 ### 8.2. Backend Architecture
 
 #### Công nghệ sử dụng
 - **Framework**: FastAPI
+- **Language**: Python 3.11+
 - **Server**: Uvicorn
 - **Authentication**: Google OAuth 2.0
 - **APIs**: OpenAI, Google Calendar, Google Sheets
@@ -158,73 +145,77 @@ Xây dựng ứng dụng desktop AI assistant đa chức năng giúp người d�
 - **Calendar Service**: Tương tác với Google Calendar API, xử lý CRUD operations cho events
 - **Sheet Service**: Tương tác với Google Sheets API, xử lý đọc/ghi dữ liệu
 
-### 8.3. Data Flow
+### 8.3. Frontend Architecture (Dự kiến)
+
+#### Công nghệ sử dụng
+- **Framework**: Flet
+- **Language**: Python 3.11+
+- **Communication**: HTTP requests đến FastAPI backend
+- **State Management**: Flet's built-in state management
+
+#### Giải thích lý do lựa chọn Flet
+- **Single Language**: Sử dụng Python cho cả Frontend và Backend, giảm context switching
+- **Easy Learning Curve**: Cú pháp đơn giản, dễ học cho người mới bắt đầu
+- **Cross-platform**: Hỗ trợ Windows, macOS, Linux từ cùng một codebase
+- **Modern UI**: Built-in Material Design components, không cần CSS
+- **Fast Development**: Rapid prototyping với hot reload
+- **Native Performance**: Compile thành native app với Flutter engine
+
+#### Module Structure
+- **Chat Module**: Giao diện chat với AI, hiển thị history
+- **Calendar Module**: View và quản lý events (grid/list view)
+- **Sheets Module**: Hiển thị và chỉnh sửa dữ liệu dạng bảng
+- **Settings Module**: Cấu hình API keys, preferences
+
+### 8.4. Data Flow
 
 ```
-User Input → React Component → IPC Call → FastAPI Endpoint → Service Layer → External API → Response Processing → React State Update → UI Render
+User Input → Flet Component → HTTP Request → FastAPI Endpoint → Service Layer → External API → Response Processing → Flet State Update → UI Render
 ```
 
-### 8.4. Authentication Flow (dự kiến giải quyết sau khi hoàn thành Frontend)
+### 8.5. Authentication Flow
 
 ```
-1. Người dùng kết nối với Google (cần tạo 1 nút ấn)
-2. Frontend → Backend: Request OAuth URL
-3. Backend xử lý tạo OAuth URL
+1. Người dùng click nút "Connect to Google" trong Settings
+2. Frontend gửi request đến Backend: GET /api/auth/google/url
+3. Backend tạo OAuth URL và trả về
 4. Frontend mở browser với OAuth URL
-5. Người dùng chấp nhận app
-6. Google redirects tới local server
-7. Backend exchanges code for tokens
-8. Backend lưu tokens
-9. Frontend nhận thông báo thành công và hiển thị
-10. Hết flow authentication
+5. Người dùng đăng nhập và chấp nhận quyền truy cập
+6. Google redirects về local server của Backend
+7. Backend nhận authorization code và exchange lấy tokens
+8. Backend lưu tokens vào encrypted file
+9. Backend trả về success response
+10. Frontend hiển thị thông báo "Connected successfully"
 ```
 
-### 8.5. Công nghệ dự kiến
+### 8.6. Security
 
 #### Credentials Storage
-- Mã hóa credentials sử dụng Fernet (cần đọc thêm về Fernet)
-- Lưu trữ tokens trong file encrypted 
+- Mã hóa credentials sử dụng Fernet (cryptography library)
+- Lưu trữ tokens trong file encrypted trong local storage
 
-#### IPC Security
-- Context isolation trong Electron
-- Whitelist các IPC channels được phép
-- Kiểm tra input data 
+#### API Security
+- CORS configuration cho local development
+- Input validation cho tất cả endpoints
+- Rate limiting để tránh abuse
 
-## 9. API Documentation (dự kiến)
+## 9. Thực nghiệm
 
-### 9.1. AI Chat Endpoints
+### 9.1. Từ Electron + Vite sang Flet
 
-**POST /api/chat**
-- **Request**: message (string), context (array)
-- **Response**: response (string), timestamp (ISO datetime)
-- **Chức năng**: Gửi message đến AI và nhận phản hồi
+Ban đầu, dự án được bắt đầu với **Electron + Vite + React + TypeScript** để xây dựng desktop app. Tuy nhiên, trong quá trình phát triển, đã gặp một số khó khăn:
 
-### 9.2. Calendar Endpoints
+**Vấn đề gặp phải:**
+- **Ngôn ngữ**: Chưa thông thạo TypeScript và JavaScript, dẫn đến việc implement các tính năng chậm và hay gặp lỗi
+- **Độ phức tạp**: Phải quản lý quá nhiều công nghệ khác nhau (TypeScript, React, Electron IPC, Node.js)
+- **Hiệu suất phát triển**: Thời gian build và debug lâu, hot reload không ổn định
+- **Learning curve**: Phải học nhiều thứ cùng lúc (React hooks, TypeScript types, Electron architecture)
 
-**GET /api/calendar/events**
-- **Query params**: time_min, time_max (ISO datetime)
-- **Response**: Danh sách events với id, summary, start, end
-- **Chức năng**: Lấy danh sách sự kiện trong khoảng thời gian
+**Quyết định chuyển sang Flet:**
+- **Single language**: Chỉ cần Python cho cả Frontend và Backend, tận dụng kiến thức đã có
+- **Đơn giản hơn**: Ít công nghệ cần học, syntax gần gũi và dễ hiểu
+- **Phát triển nhanh hơn**: Hot reload nhanh, ít config, dễ debug
+- **Hiệu suất tốt**: Build trên Flutter engine, performance native app
+- **Phù hợp với dự án**: Là người làm một mình, cần optimize thời gian phát triển
 
-**POST /api/calendar/events**
-- **Request**: summary, description, start, end
-- **Response**: Event được tạo với id
-- **Chức năng**: Tạo sự kiện mới trong calendar
-
-**PUT /api/calendar/events/{id}** - Cập nhật sự kiện
-
-**DELETE /api/calendar/events/{id}** - Xóa sự kiện
-
-### 9.3. Sheets Endpoints
-
-**GET /api/sheets/data**
-- **Query params**: sheet_id, range (ví dụ: "Sheet1!A1:D10")
-- **Response**: values (array 2D)
-- **Chức năng**: Đọc dữ liệu từ Google Sheet
-
-**POST /api/sheets/data**
-- **Request**: sheet_id, range, values
-- **Response**: Số rows được ghi
-- **Chức năng**: Ghi dữ liệu vào Google Sheet
-
-**GET /api/sheets/search** - Tìm kiếm trong sheet
+**Kết luận**: Quyết định chuyển sang Flet giúp dự án tiến triển nhanh hơn và giảm độ phức tạp không cần thiết.
