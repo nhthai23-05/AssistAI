@@ -6,7 +6,7 @@ import os.path
 import json
 from pathlib import Path
 
-SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+SCOPES = ['https://www.googleapis.com/auth/calendar']
 CONFIG_PATH = Path(__file__).parent.parent / "config"
 
 def get_calendar_service():
@@ -72,12 +72,24 @@ def get_calendar_service():
     
     return build('calendar', 'v3', credentials=creds)
 
-async def list_events(max_results: int = 10):
-    """Lấy danh sách events"""
+async def list_events(max_results: int = 100):
+    """Lấy danh sách events từ hôm nay đến 7 ngày tới"""
     try:
+        import datetime
         service = get_calendar_service()
+        
+        # Lấy từ 00:00 hôm nay
+        today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        time_min = today.isoformat() + 'Z'
+        
+        # Đến 23:59 ngày thứ 7
+        week_end = today + datetime.timedelta(days=7)
+        time_max = week_end.isoformat() + 'Z'
+        
         events_result = service.events().list(
             calendarId='primary',
+            timeMin=time_min,
+            timeMax=time_max,
             maxResults=max_results,
             singleEvents=True,
             orderBy='startTime'
@@ -85,4 +97,148 @@ async def list_events(max_results: int = 10):
         return events_result.get('items', [])
     except Exception as e:
         print(f"Lỗi khi lấy danh sách events: {e}")
+        raise
+
+async def insert_events(
+    summary: str,
+    description: str = None,
+    start_datetime: str = None,  # Format: '2026-01-18T10:00:00+07:00'
+    end_datetime: str = None,    # Format: '2026-01-18T11:00:00+07:00'
+    recurrence: list = None,     # RRULE format, ví dụ: ['RRULE:FREQ=DAILY;COUNT=5']
+    attendees: list = None,
+    location: str = None
+):
+    try:
+        service = get_calendar_service()
+        
+        # Tạo event object
+        event = {
+            'summary': summary,
+        }
+        
+        # Thêm các trường optional
+        if description:
+            event['description'] = description
+        
+        if start_datetime and end_datetime:
+            event['start'] = {
+                'dateTime': start_datetime,
+                'timeZone': 'Asia/Ho_Chi_Minh',
+            }
+            event['end'] = {
+                'dateTime': end_datetime,
+                'timeZone': 'Asia/Ho_Chi_Minh',
+            }
+        
+        if recurrence:
+            event['recurrence'] = recurrence
+        
+        if attendees:
+            event['attendees'] = [{'email': email} for email in attendees]
+        
+        if location:
+            event['location'] = location
+        
+        # Tạo event
+        created_event = service.events().insert(
+            calendarId='primary',
+            body=event,
+            sendUpdates='all'
+        ).execute()
+        
+        print(f"✓ Đã tạo event: {created_event.get('htmlLink')}")
+        return created_event
+        
+    except Exception as e:
+        print(f"✗ Lỗi khi tạo event: {e}")
+        raise
+
+async def update_events(
+    event_id: str,
+    summary: str = None,
+    start_datetime: str = None,
+    end_datetime: str = None,
+    description: str = None,
+    recurrence: list = None,
+    attendees: list = None,
+    location: str = None
+):
+    """
+    Cập nhật event trong Google Calendar
+    
+    Args:
+        event_id: ID của event cần update (BẮT BUỘC)
+        summary: Tên event mới
+        start_datetime: Thời gian bắt đầu mới
+        end_datetime: Thời gian kết thúc mới
+        description: Mô tả mới
+        recurrence: Quy tắc lặp lại mới
+        attendees: Danh sách email người tham gia mới
+        location: Địa điểm mới
+    """
+    try:
+        service = get_calendar_service()
+        
+        # Lấy event hiện tại
+        event = service.events().get(
+            calendarId='primary',
+            eventId=event_id
+        ).execute()
+        
+        # Cập nhật các trường được cung cấp
+        if summary:
+            event['summary'] = summary
+        
+        if description is not None: 
+            event['description'] = description
+        
+        if start_datetime and end_datetime:
+            event['start'] = {
+                'dateTime': start_datetime,
+                'timeZone': 'Asia/Ho_Chi_Minh',
+            }
+            event['end'] = {
+                'dateTime': end_datetime,
+                'timeZone': 'Asia/Ho_Chi_Minh',
+            }
+        
+        if recurrence is not None:
+            event['recurrence'] = recurrence
+        
+        if attendees is not None:
+            event['attendees'] = [{'email': email} for email in attendees]
+        
+        if location is not None:
+            event['location'] = location
+        
+        # Cập nhật event
+        updated_event = service.events().update(
+            calendarId='primary',
+            eventId=event_id,
+            body=event,
+            sendUpdates='all'  # Gửi thông báo cho attendees
+        ).execute()
+        
+        print(f"✓ Đã cập nhật event: {updated_event.get('htmlLink')}")
+        return updated_event
+        
+    except Exception as e:
+        print(f"✗ Lỗi khi cập nhật event: {e}")
+        raise
+
+async def delete_events(event_id: str):
+    try:
+        service = get_calendar_service()
+        
+        service.events().delete(
+            calendarId='primary',
+            eventId=event_id,
+            sendUpdates='all'
+        ).execute()
+        
+        print(f"✓ Đã xóa event ID: {event_id}")
+        return {"message": "Event deleted successfully", "event_id": event_id}
+        
+    except Exception as e:
+        print(f"✗ Lỗi khi xóa event: {e}")
         raise
