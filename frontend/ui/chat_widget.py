@@ -2,26 +2,9 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QLabel
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt
 from services.calendar_service import CalendarService
-
-class ChatThread(QThread):
-    """Thread để gọi API không block UI"""
-    response_received = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-    
-    def __init__(self, calendar_service, user_message):
-        super().__init__()
-        self.calendar_service = calendar_service
-        self.user_message = user_message
-    
-    def run(self):
-        try:
-            result = self.calendar_service.smart_create_event(self.user_message)
-            response = f"✅ Event created: {result.get('event', {}).get('summary', 'Unknown')}"
-            self.response_received.emit(response)
-        except Exception as e:
-            self.error_occurred.emit(str(e))
+from utils.threads import ChatThread
 
 class ChatWidget(QWidget):
     def __init__(self):

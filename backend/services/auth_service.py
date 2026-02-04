@@ -7,7 +7,8 @@ import json
 CONFIG_PATH = Path(__file__).parent.parent / "config"
 SCOPES = [
     'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/spreadsheets'
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/calendar.readonly'
 ]
 
 def get_oauth_url():
