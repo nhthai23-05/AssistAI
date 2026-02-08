@@ -3,3 +3,4 @@ backend/setup/
 backend/__pycache__/
 backend/services/__pycache__/
 setup/
+tests/

@@ -6,3 +6,8 @@ google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 openai
+
+pytest
+pytest-asyncio
+pytest-cov
+pytest-mock
