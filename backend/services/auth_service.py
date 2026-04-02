@@ -3,20 +3,25 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from pathlib import Path
 import json
+from config.config import settings
 
 CONFIG_PATH = Path(__file__).parent.parent / "config"
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/calendar.readonly'
-]
+SCOPES = settings.google_scopes_list
 
 def get_oauth_url():
     """Tạo OAuth URL để user đăng nhập"""
-    flow = Flow.from_client_secrets_file(
-        str(CONFIG_PATH / 'credentials.json'),
+    flow = Flow.from_client_config(
+        {
+            "installed": {
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [settings.google_redirect_uri],
+            }
+        },
         scopes=SCOPES,
-        redirect_uri='http://localhost:8000/api/auth/callback'
+        redirect_uri=settings.google_redirect_uri
     )
     
     auth_url, state = flow.authorization_url(
@@ -24,10 +29,18 @@ def get_oauth_url():
         include_granted_scopes='true'
     )
     
-    # Lưu state để verify sau
-    with open(CONFIG_PATH / 'oauth_state.json', 'w') as f:
-        json.dump({'state': state}, f)
-    
+    # Lưu state để verify saconfig(
+    {
+            "installed": {
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [settings.google_redirect_uri],
+            }
+    },
+    scopes=SCOPES,
+    redirect_uri=settings.google_redirect_uri
     return auth_url
 
 def handle_oauth_callback(code: str):

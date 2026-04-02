@@ -2,25 +2,29 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-import os.path
 import json
 from pathlib import Path
+from config.config import settings
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = settings.google_scopes_list
 CONFIG_PATH = Path(__file__).parent.parent / "config"
 
 def get_calendar_service():
     """Authenticate và return Calendar service"""
     creds = None
     token_path = CONFIG_PATH / "token.json"
-    credentials_path = CONFIG_PATH / "credentials.json"
     
-    # Kiểm tra file credentials.json có tồn tại không
-    if not credentials_path.exists():
-        raise FileNotFoundError(
-            f"Không tìm thấy file credentials.json tại {credentials_path}\n"
-            "Vui lòng tải về từ Google Cloud Console và đặt vào thư mục config/"
-        )
+    # Create credentials config from environment
+    credentials_config = {
+        "installed": {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "project_id": settings.google_project_id,
+            "redirect_uris": [settings.google_redirect_uri],
+        }
+    }
     
     # Đọc token đã lưu nếu có
     if token_path.exists():
@@ -43,16 +47,9 @@ def get_calendar_service():
                 creds = None
         
         if not creds:
-            print("\n" + "="*60)
-            print("ĐĂNG NHẬP LẦN ĐẦU - CẦN CẤP QUYỀN")
-            print("="*60)
-            print("Trình duyệt sẽ mở để bạn đăng nhập Google và cấp quyền.")
-            print("Sau khi cấp quyền, thông tin sẽ được lưu vào token.json")
-            print("="*60 + "\n")
-            
             try:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(credentials_path), SCOPES)
+                flow = InstalledAppFlow.from_client_config(
+                    credentials_config, SCOPES)
                 creds = flow.run_local_server(
                     port=8080,  # Port cố định, dễ config trong Google Console
                     prompt='consent',  # Luôn hiển thị màn hình đồng ý

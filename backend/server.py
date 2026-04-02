@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import json
-from pathlib import Path
+from config.config import settings
 from routers import auth, calendar, chat
 
 app = FastAPI(title="AssistAI Backend")
@@ -14,10 +13,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Load config
-CONFIG_PATH = Path(__file__).parent / "config"
-settings = json.loads((CONFIG_PATH / "settings.json").read_text())
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])

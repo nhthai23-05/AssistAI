@@ -2,12 +2,11 @@ import openai
 import json
 import re
 from pathlib import Path
+from config.config import settings
 
-CONFIG_PATH = Path(__file__).parent.parent / "config"
 PROMPT_PATH = Path(__file__).parent.parent / "prompt"
-settings = json.loads((CONFIG_PATH / "settings.json").read_text())
 
-openai.api_key = settings["llm"]["api_key"]
+openai.api_key = settings.llm_api_key
 
 def extract_json(text: str) -> str:
     """
