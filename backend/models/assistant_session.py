@@ -28,7 +28,7 @@ class AssistantSession(TimestampMixin, Base):
     workspace = relationship("Workspace", back_populates="assistant_sessions")
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
     tool_calls = relationship("ToolCall", back_populates="session", cascade="all, delete-orphan")
-    town_usages = relationship("TownUsage", back_populates="session", cascade="all, delete-orphan")
+    token_usages = relationship("TokenUsage", back_populates="session", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<AssistantSession(id={self.session_id}, user_id={self.user_id}, workspace_id={self.workspace_id})>"

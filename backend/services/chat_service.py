@@ -4,7 +4,7 @@ import json
 class ChatService:
     """Service xử lý chat với AI"""
     
-    async def send_message(self, message: str, history: list = None):
+    async def send_message(self, message: str, history: list = None, session_id: int = None):
         try:
             # Build context từ history
             context_str = self._build_context(history or [])
@@ -15,7 +15,8 @@ class ChatService:
             # Gọi AI service với prompt chat
             response = await chat_completion(
                 message=full_message,
-                prompt_file="chat.txt"  # chat.txt chưa tối ưu, sẽ build context sau
+                prompt_file="chat.txt",  # chat.txt chưa tối ưu, sẽ build context sau
+                session_id=session_id
             )
             
             return {

@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 from config.config import settings
+from services.token_usage_service import token_usage_service
 
 PROMPT_PATH = Path(__file__).parent.parent / "prompt"
 
@@ -29,7 +30,7 @@ def extract_json(text: str) -> str:
     
     return text
 
-async def chat_completion(message: str, prompt_file: str = None, context: dict = None) -> str:
+async def chat_completion(message: str, prompt_file: str = None, context: dict = None, session_id: int = None) -> str:
     """
     Gọi OpenAI API với prompt template từ file
     
@@ -37,6 +38,7 @@ async def chat_completion(message: str, prompt_file: str = None, context: dict =
         message: Tin nhắn từ user
         prompt_file: Tên file prompt trong thư mục prompt/ (ví dụ: "choose_events.txt")
         context: Dictionary chứa biến để thay thế trong prompt template
+        session_id: ID của assistant session (optional, for token usage tracking)
     
     Returns:
         Response từ OpenAI API
@@ -72,12 +74,12 @@ async def chat_completion(message: str, prompt_file: str = None, context: dict =
         client = OpenAI(api_key=openai.api_key)
         
         print("DEBUG - Calling OpenAI API...")
-        print(f"DEBUG - Model: {settings['llm']['model']}")
+        print(f"DEBUG - Model: {settings.llm_model}")
         
         response = client.chat.completions.create(
-            model=settings["llm"]["model"],
+            model=settings.llm_model,
             messages=[{"role": "user", "content": full_message}],
-            max_completion_tokens=settings["llm"].get("max_completion_tokens", 1000)
+            max_tokens=settings.llm_max_tokens
         )
         
         result = response.choices[0].message.content
@@ -86,6 +88,16 @@ async def chat_completion(message: str, prompt_file: str = None, context: dict =
         
         if not result or result.strip() == "":
             raise ValueError("OpenAI returned empty response")
+        
+        # Log token usage
+        if hasattr(response, 'usage') and response.usage:
+            await token_usage_service.log_token_usage(
+                session_id=session_id,
+                usage_type="llm_api",
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens
+            )
         
         return result
         
@@ -100,7 +112,7 @@ async def chat_completion(message: str, prompt_file: str = None, context: dict =
         
         raise Exception(error_msg)
 
-async def smart_event_operation(user_request: str, events_list: list, operation: str = "update") -> dict:
+async def smart_event_operation(user_request: str, events_list: list, operation: str = "update", session_id: int = None) -> dict:
     try:
         # Format events list thành text dễ đọc
         events_text = "\n".join([
@@ -123,7 +135,8 @@ async def smart_event_operation(user_request: str, events_list: list, operation:
         response = await chat_completion(
             message=user_request,
             prompt_file=prompt_file,
-            context=context
+            context=context,
+            session_id=session_id
         )
         
         # DEBUG: In ra response từ Chatgpt
@@ -141,7 +154,7 @@ async def smart_event_operation(user_request: str, events_list: list, operation:
         print(f"Response was: {response if 'response' in locals() else 'No response'}")
         raise
 
-async def parse_event_creation(user_request: str, current_date: str = None, events_list: list = None) -> dict:
+async def parse_event_creation(user_request: str, current_date: str = None, events_list: list = None, session_id: int = None) -> dict:
     """
     Sử dụng GPT để phân tích yêu cầu tạo event và chuyển thành cấu trúc dữ liệu
     
@@ -149,6 +162,7 @@ async def parse_event_creation(user_request: str, current_date: str = None, even
         user_request: Yêu cầu của user (ví dụ: "tạo meeting với team vào 3pm mai")
         current_date: Ngày hiện tại để GPT có context thời gian
         events_list: Danh sách events hiện tại để tránh xung đột
+        session_id: ID của assistant session (optional, for token usage tracking)
     
     Returns:
         Dict chứa thông tin event cần tạo
@@ -179,7 +193,8 @@ async def parse_event_creation(user_request: str, current_date: str = None, even
         response = await chat_completion(
             message=user_request,
             prompt_file="create_event.txt",
-            context=context
+            context=context,
+            session_id=session_id
         )
         
         # DEBUG: In ra response để xem
@@ -202,12 +217,13 @@ async def parse_event_creation(user_request: str, current_date: str = None, even
         print(f"Response was: {response if 'response' in locals() else 'No response'}")
         raise
 
-async def detect_calendar_action(user_request: str) -> dict:
+async def detect_calendar_action(user_request: str, session_id: int = None) -> dict:
     """
     Sử dụng LLM để phát hiện action từ user request
     
     Args:
         user_request: Yêu cầu của user
+        session_id: ID của assistant session (optional, for token usage tracking)
     
     Returns:
         Dict chứa action, confidence, reasoning
@@ -220,7 +236,8 @@ async def detect_calendar_action(user_request: str) -> dict:
         response = await chat_completion(
             message=user_request,
             prompt_file="detect_action.txt",
-            context=context
+            context=context,
+            session_id=session_id
         )
         
         # Extract và parse JSON

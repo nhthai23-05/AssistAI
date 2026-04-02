@@ -11,7 +11,7 @@ from backend.models.calendar import Calendar
 from backend.models.sheet import Sheet
 from backend.models.integration import Integration
 from backend.models.audit_log import AuditLog, AuditAction
-from backend.models.town_usage import TownUsage
+from backend.models.token_usage import TokenUsage
 
 __all__ = [
     "Base",
@@ -33,5 +33,5 @@ __all__ = [
     "Integration",
     "AuditLog",
     "AuditAction",
-    "TownUsage",
+    "TokenUsage",
 ]
