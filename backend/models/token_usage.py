@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
-from backend.models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin
 
 
 class TokenUsage(TimestampMixin, Base):
@@ -11,7 +11,7 @@ class TokenUsage(TimestampMixin, Base):
     session_id = Column(Integer, ForeignKey("assistant_session.session_id"), nullable=False, index=True)
     usage_type = Column(String(100), nullable=False)  # e.g., "api_calls", "tokens", "storage"
     amount = Column(Integer, nullable=False)
-    metadata = Column(Text, nullable=True)
+    meta_data = Column(Text, nullable=True)
     
     # Relationships
     session = relationship("AssistantSession", back_populates="token_usages")

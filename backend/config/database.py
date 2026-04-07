@@ -2,7 +2,7 @@ from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
-from backend.config.config import settings
+from config.config import settings
 import os
 
 # Database URL (loaded from .env via config.settings)
@@ -31,11 +31,11 @@ def get_db() -> Generator[Session, None, None]:
 
 def create_all_tables():
     """Create all tables in database"""
-    from backend.models.base import Base
+    from models.base import Base
     Base.metadata.create_all(bind=engine)
 
 
 def drop_all_tables():
     """Drop all tables from database (use with caution)"""
-    from backend.models.base import Base
+    from models.base import Base
     Base.metadata.drop_all(bind=engine)

@@ -29,18 +29,6 @@ def get_oauth_url():
         include_granted_scopes='true'
     )
     
-    # Lưu state để verify saconfig(
-    {
-            "installed": {
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [settings.google_redirect_uri],
-            }
-    },
-    scopes=SCOPES,
-    redirect_uri=settings.google_redirect_uri
     return auth_url
 
 def handle_oauth_callback(code: str):

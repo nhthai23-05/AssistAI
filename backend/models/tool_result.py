@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, Text, ForeignKey, JSON, Boolean
 from sqlalchemy.orm import relationship
-from backend.models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin
 
 
 class ToolResult(TimestampMixin, Base):

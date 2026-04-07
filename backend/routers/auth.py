@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
+from config.config import settings
 from services.auth_service import (
     get_oauth_url,
     handle_oauth_callback,

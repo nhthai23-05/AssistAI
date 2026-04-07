@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from backend.models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin
 import enum
 
 

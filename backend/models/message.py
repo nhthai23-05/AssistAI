@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum
 from sqlalchemy.orm import relationship
-from backend.models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin
 import enum
 
 

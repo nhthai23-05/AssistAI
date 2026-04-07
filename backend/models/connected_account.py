@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from backend.models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin
 
 
 class ConnectedAccount(TimestampMixin, Base):
