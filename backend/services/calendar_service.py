@@ -1,81 +1,75 @@
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-import json
-from pathlib import Path
+from sqlalchemy.orm import Session
+from services.auth_service import get_credentials_for_user, has_valid_token
 from config.config import settings
+from typing import Optional
+import datetime
+
 
 SCOPES = settings.google_scopes_list
-CONFIG_PATH = Path(__file__).parent.parent / "config"
 
-def get_calendar_service():
-    """Authenticate và return Calendar service"""
-    creds = None
-    token_path = CONFIG_PATH / "token.json"
+
+def get_calendar_service(db: Session, user_id: int) -> Optional:
+    """
+    Authenticate and return Calendar service for user
     
-    # Create credentials config from environment
-    credentials_config = {
-        "installed": {
-            "client_id": settings.google_client_id,
-            "client_secret": settings.google_client_secret,
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "project_id": settings.google_project_id,
-            "redirect_uris": [settings.google_redirect_uri],
-        }
-    }
-    
-    # Đọc token đã lưu nếu có
-    if token_path.exists():
-        try:
-            creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-        except Exception as e:
-            print(f"Lỗi khi đọc token: {e}")
-            print("Sẽ tiến hành đăng nhập lại...")
-            creds = None
-    
-    # Refresh hoặc tạo mới credentials
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                print("Đang refresh token...")
-                creds.refresh(Request())
-            except Exception as e:
-                print(f"Lỗi khi refresh token: {e}")
-                print("Yêu cầu đăng nhập lại...")
-                creds = None
+    Args:
+        db: Database session
+        user_id: User ID
+        
+    Returns:
+        Google Calendar service object, or None if authentication fails
+    """
+    try:
+        # Get credentials from DB
+        creds = get_credentials_for_user(db, user_id)
         
         if not creds:
+            print(f"❌ No credentials found for user {user_id}")
+            return None
+        
+        # Check and refresh if needed
+        if creds.expired and creds.refresh_token:
             try:
-                flow = InstalledAppFlow.from_client_config(
-                    credentials_config, SCOPES)
-                creds = flow.run_local_server(
-                    port=8080,  # Port cố định, dễ config trong Google Console
-                    prompt='consent',  # Luôn hiển thị màn hình đồng ý
-                    success_message='Đăng nhập thành công! Bạn có thể đóng cửa sổ này.'
-                )
-                print("\n✓ Đăng nhập thành công!")
+                print("⏳ Refreshing expired token...")
+                creds.refresh(Request())
+                # Note: oauth_token_service will auto-update in DB via has_valid_token
+                print("✅ Token refreshed")
             except Exception as e:
-                print(f"\n✗ Lỗi khi đăng nhập: {e}")
-                raise
+                print(f"❌ Token refresh failed: {e}")
+                return None
         
-        # Lưu credentials
-        try:
-            token_path.write_text(creds.to_json())
-            print(f"✓ Đã lưu token vào {token_path}")
-        except Exception as e:
-            print(f"✗ Lỗi khi lưu token: {e}")
-    
-    return build('calendar', 'v3', credentials=creds)
+        # Build and return Calendar service
+        service = build('calendar', 'v3', credentials=creds)
+        print(f"✅ Calendar service created for user {user_id}")
+        return service
+        
+    except Exception as e:
+        print(f"❌ Failed to create calendar service: {e}")
+        return None
 
-async def list_events(max_results: int = 100):
-    """Lấy danh sách events từ hôm nay đến 7 ngày tới"""
-    try:
-        import datetime
-        service = get_calendar_service()
+
+async def list_events(db: Session, user_id: int, max_results: int = 100):
+    """
+    Get list of events from today to next 7 days
+    
+    Args:
+        db: Database session
+        user_id: User ID  
+        max_results: Maximum results to return
         
-        # Lấy từ 00:00 hôm nay
+    Returns:
+        List of events
+    """
+    try:
+        service = get_calendar_service(db, user_id)
+        
+        if not service:
+            return {"error": f"Failed to authenticate for user {user_id}"}
+        
+        # Get from 00:00 today
         today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         time_min = today.isoformat() + 'Z'
         
@@ -93,10 +87,13 @@ async def list_events(max_results: int = 100):
         ).execute()
         return events_result.get('items', [])
     except Exception as e:
-        print(f"Lỗi khi lấy danh sách events: {e}")
+        print(f"❌ Failed to list events: {e}")
         raise
 
+
 async def insert_events(
+    db: Session,
+    user_id: int,
     summary: str,
     description: str = None,
     start_datetime: str = None,  # Format: '2026-01-18T10:00:00+07:00'
@@ -105,8 +102,25 @@ async def insert_events(
     attendees: list = None,
     location: str = None
 ):
+    """
+    Create an event in user's calendar
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        summary: Event title
+        description: Event description
+        start_datetime: Start time
+        end_datetime: End time
+        recurrence: Recurrence rules
+        attendees: List of attendee emails
+        location: Event location
+    """
     try:
-        service = get_calendar_service()
+        service = get_calendar_service(db, user_id)
+        
+        if not service:
+            return {"error": f"Failed to authenticate for user {user_id}"}
         
         # Tạo event object
         event = {
@@ -143,14 +157,17 @@ async def insert_events(
             sendUpdates='all'
         ).execute()
         
-        print(f"✓ Đã tạo event: {created_event.get('htmlLink')}")
+        print(f"✅ Event created: {created_event.get('htmlLink')}")
         return created_event
         
     except Exception as e:
-        print(f"✗ Lỗi khi tạo event: {e}")
+        print(f"❌ Failed to create event: {e}")
         raise
 
+
 async def update_events(
+    db: Session,
+    user_id: int,
     event_id: str,
     summary: str = None,
     start_datetime: str = None,
@@ -174,7 +191,10 @@ async def update_events(
         location: Địa điểm mới
     """
     try:
-        service = get_calendar_service()
+        service = get_calendar_service(db, user_id)
+        
+        if not service:
+            return {"error": f"Failed to authenticate for user {user_id}"}
         
         # Lấy event hiện tại
         event = service.events().get(
@@ -223,9 +243,20 @@ async def update_events(
         print(f"✗ Lỗi khi cập nhật event: {e}")
         raise
 
-async def delete_events(event_id: str):
+async def delete_events(db: Session, user_id: int, event_id: str):
+    """
+    Delete event from user's calendar
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        event_id: Event ID to delete
+    """
     try:
-        service = get_calendar_service()
+        service = get_calendar_service(db, user_id)
+        
+        if not service:
+            return {"error": f"Failed to authenticate for user {user_id}"}
         
         service.events().delete(
             calendarId='primary',

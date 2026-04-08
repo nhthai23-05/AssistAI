@@ -22,7 +22,11 @@ class Settings(BaseSettings):
     google_project_id: str
     google_redirect_uri: str
     google_token_refresh: Optional[str] = None
-    google_scopes: str = "https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/spreadsheets"
+    google_scopes: str
+    
+    # Encryption (SENSITIVE - No defaults)
+    # Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+    encryption_key: str
     
     # App Settings
     app_name: str = "AssistAI Desktop"

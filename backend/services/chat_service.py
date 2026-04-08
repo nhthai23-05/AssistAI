@@ -1,10 +1,29 @@
 from services.ai_service import chat_completion
+from sqlalchemy.orm import Session
+from typing import Optional
 import json
 
 class ChatService:
     """Service xử lý chat với AI"""
     
-    async def send_message(self, message: str, history: list = None, session_id: int = None):
+    async def send_message(
+        self, 
+        message: str, 
+        history: list = None, 
+        user_id: int = None,
+        db: Optional[Session] = None,
+        session_id: int = None
+    ):
+        """
+        Send message to AI chatbot
+        
+        Args:
+            message: User message
+            history: Chat history (last 10 messages)
+            user_id: User ID (for context/audit)
+            db: Database session (for future data access)
+            session_id: Session ID (legacy, deprecated)
+        """
         try:
             # Build context từ history
             context_str = self._build_context(history or [])
@@ -16,7 +35,8 @@ class ChatService:
             response = await chat_completion(
                 message=full_message,
                 prompt_file="chat.txt",  # chat.txt chưa tối ưu, sẽ build context sau
-                session_id=session_id
+                session_id=session_id,
+                user_id=user_id
             )
             
             return {

@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy.orm import Session
+from config.database import get_db
 from services.chat_service import ChatService
-from dependencies.auth import require_auth
+from services.auth_service import has_valid_token
 
 router = APIRouter(tags=["chat"])
 chat_service = ChatService()
@@ -19,18 +21,29 @@ class ChatResponse(BaseModel):
 @router.post("/message", response_model=ChatResponse)
 async def send_message(
     request: ChatRequest,
-    _=Depends(require_auth)
+    user_id: int = Query(..., description="User ID"),
+    db: Session = Depends(get_db)
 ):
     """
     Gửi message đến AI chatbot
     
     - **message**: Tin nhắn của user
     - **history**: Lịch sử hội thoại (optional)
+    - **user_id**: User ID (required)
     """
     try:
+        # Check authentication
+        if not has_valid_token(db, user_id):
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated or token expired"
+            )
+        
         result = await chat_service.send_message(
             message=request.message,
-            history=request.history
+            history=request.history,
+            user_id=user_id,
+            db=db
         )
         return result
     except Exception as e:

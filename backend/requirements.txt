@@ -10,6 +10,7 @@ openai
 sqlalchemy
 psycopg2-binary
 alembic
+cryptography
 
 pytest
 pytest-asyncio

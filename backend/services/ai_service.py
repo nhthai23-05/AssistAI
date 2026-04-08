@@ -30,7 +30,13 @@ def extract_json(text: str) -> str:
     
     return text
 
-async def chat_completion(message: str, prompt_file: str = None, context: dict = None, session_id: int = None) -> str:
+async def chat_completion(
+    message: str, 
+    prompt_file: str = None, 
+    context: dict = None, 
+    session_id: int = None,
+    user_id: int = None
+) -> str:
     """
     Gọi OpenAI API với prompt template từ file
     
@@ -39,6 +45,7 @@ async def chat_completion(message: str, prompt_file: str = None, context: dict =
         prompt_file: Tên file prompt trong thư mục prompt/ (ví dụ: "choose_events.txt")
         context: Dictionary chứa biến để thay thế trong prompt template
         session_id: ID của assistant session (optional, for token usage tracking)
+        user_id: User ID (optional, for context/audit)
     
     Returns:
         Response từ OpenAI API
