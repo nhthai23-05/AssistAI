@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
+"""Authentication Router - Handles OAuth login/logout"""
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from config.config import settings
 from config.database import get_db
@@ -10,32 +11,43 @@ from services.auth_service import (
 )
 from utils.oauth_utils import generate_pkce_pair, generate_authorization_url, validate_state
 from utils.encryption import encrypt_data, decrypt_data
-from pydantic import BaseModel
+from schemas.user import UserResponse
+from exceptions import (
+    GoogleOAuthError,
+    InvalidEmailError,
+    NoValidTokenError,
+)
 
 router = APIRouter()
 
 
-class LogoutRequest(BaseModel):
-    user_id: int
-
-
 @router.get("/status")
-async def auth_status(user_id: int = Query(...), db: Session = Depends(get_db)):
-    """Check xem user đã login chưa"""
-    try:
-        is_authenticated = has_valid_token(db, user_id)
-        return {
-            "authenticated": is_authenticated,
-            "user_id": user_id,
-            "message": "Logged in" if is_authenticated else "Not logged in"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def auth_status(
+    user_id: int = Query(..., description="User ID", gt=0),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Check authentication status for user
+    
+    - **user_id**: User ID (required)
+    
+    Returns:
+        - **authenticated**: Boolean indicating if user is authenticated
+        - **user_id**: User ID
+    """
+    is_authenticated = has_valid_token(db, user_id)
+    return {
+        "authenticated": is_authenticated,
+        "user_id": user_id
+    }
 
 
 @router.get("/login")
-async def login():
-    """Bước 1: Tạo OAuth URL với PKCE và redirect user đến Google"""
+async def login() -> RedirectResponse:
+    """
+    Step 1: Initiate OAuth login
+    Generates PKCE parameters and redirects to Google authorization
+    """
     try:
         # Generate PKCE parameters
         state, code_verifier, code_challenge = generate_pkce_pair()
@@ -66,86 +78,115 @@ async def login():
         return response
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to initiate login: {str(e)}")
+        raise GoogleOAuthError(f"Failed to initiate login: {str(e)}")
 
 
 @router.get("/callback")
-async def auth_callback(code: str, state: str = Query(...), request: Request = None, db: Session = Depends(get_db)):
-    """Bước 2: Google redirect về đây với code, exchange token"""
+async def auth_callback(
+    code: str,
+    state: str = Query(...),
+    request: Request = None,
+    db: Session = Depends(get_db)
+) -> HTMLResponse:
+    """
+    Step 2: OAuth callback handler
+    Exchanges authorization code for access token
+    
+    - **code**: Authorization code from Google (required)
+    - **state**: State parameter for CSRF protection (required)
+    """
     try:
         # Get encrypted PKCE data from cookie
         encrypted_pkce = request.cookies.get("pkce_state")
         if not encrypted_pkce:
-            html_content = """
-            <html>
-                <head><title>Login Failed</title></head>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
-                    <h1>❌ Login Failed</h1>
-                    <p>Session expired. Please try login again.</p>
-                </body>
-            </html>
-            """
-            return HTMLResponse(content=html_content, status_code=400)
+            return HTMLResponse(
+                content="""
+                <html>
+                    <head><title>Login Failed</title></head>
+                    <body style="font-family: Arial; text-align: center; padding: 50px;">
+                        <h1>❌ Login Failed</h1>
+                        <p>Session expired. Please try login again.</p>
+                    </body>
+                </html>
+                """,
+                status_code=400
+            )
         
         # Decrypt PKCE data
         try:
             pkce_data = decrypt_data(encrypted_pkce)
             session_state, code_verifier = pkce_data.split("|")
-        except Exception as e:
-            print(f"❌ Failed to decrypt PKCE data: {e}")
-            html_content = """
-            <html>
-                <head><title>Login Failed</title></head>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
-                    <h1>❌ Login Failed</h1>
-                    <p>Invalid session. Please try login again.</p>
-                </body>
-            </html>
-            """
-            return HTMLResponse(content=html_content, status_code=400)
+        except Exception:
+            return HTMLResponse(
+                content="""
+                <html>
+                    <head><title>Login Failed</title></head>
+                    <body style="font-family: Arial; text-align: center; padding: 50px;">
+                        <h1>❌ Login Failed</h1>
+                        <p>Invalid session. Please try login again.</p>
+                    </body>
+                </html>
+                """,
+                status_code=400
+            )
         
         # Validate state (CSRF protection)
         if not validate_state(state, session_state):
-            print(f"❌ State mismatch: received {state}, expected {session_state}")
-            html_content = """
-            <html>
-                <head><title>Login Failed</title></head>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
-                    <h1>❌ Login Failed</h1>
-                    <p>Invalid state parameter (CSRF attack suspected).</p>
-                </body>
-            </html>
-            """
-            return HTMLResponse(content=html_content, status_code=400)
+            return HTMLResponse(
+                content="""
+                <html>
+                    <head><title>Login Failed</title></head>
+                    <body style="font-family: Arial; text-align: center; padding: 50px;">
+                        <h1>❌ Login Failed</h1>
+                        <p>Invalid state parameter (CSRF attack suspected).</p>
+                    </body>
+                </html>
+                """,
+                status_code=400
+            )
         
         # Exchange code for token using code_verifier
-        result = handle_oauth_callback(code, code_verifier, db)
+        try:
+            result = handle_oauth_callback(code, code_verifier, db)
+        except (GoogleOAuthError, InvalidEmailError) as e:
+            return HTMLResponse(
+                content=f"""
+                <html>
+                    <head><title>Login Failed</title></head>
+                    <body style="font-family: Arial; text-align: center; padding: 50px;">
+                        <h1>❌ Login Failed</h1>
+                        <p>{str(e)}</p>
+                    </body>
+                </html>
+                """,
+                status_code=400
+            )
         
-        if not result:
-            html_content = """
-            <html>
-                <head><title>Login Failed</title></head>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
-                    <h1>❌ Login Failed</h1>
-                    <p>Failed to authenticate with Google. Please try again.</p>
-                </body>
-            </html>
-            """
-            return HTMLResponse(content=html_content, status_code=400)
-        
-        # Return success page with user_id encoded in URL
+        # Return success page with user_id
         user_id = result['user_id']
+        email = result['email']
+        
         html_content = f"""
         <html>
-            <head><title>Login Successful</title></head>
-            <body style="font-family: Arial; text-align: center; padding: 50px;">
-                <h1>✅ Login Successful!</h1>
+            <head>
+                <title>Login Successful</title>
+                <style>
+                    body {{ font-family: Arial; text-align: center; padding: 50px; }}
+                    .success {{ color: green; }}
+                </style>
+            </head>
+            <body>
+                <h1 class="success">✅ Login Successful!</h1>
+                <p>Email: <strong>{email}</strong></p>
                 <p>User ID: <strong>{user_id}</strong></p>
                 <p>You can close this window and return to the app.</p>
                 <script>
-                    // Optionally pass user_id back to parent window
                     if (window.opener) {{
-                        window.opener.postMessage({{type: 'auth_success', user_id: {user_id}}}, '*');
+                        window.opener.postMessage(
+                            {{type: 'auth_success', user_id: {user_id}, email: '{email}'}},
+                            '*'
+                        );
+                        window.close();
                     }}
                 </script>
             </body>
@@ -153,21 +194,38 @@ async def auth_callback(code: str, state: str = Query(...), request: Request = N
         """
         
         response = HTMLResponse(content=html_content)
-        # Delete PKCE cookie after successful authentication
         response.delete_cookie("pkce_state")
         return response
     
     except Exception as e:
-        print(f"❌ Callback error: {e}")
-        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
+        return HTMLResponse(
+            content=f"""
+            <html>
+                <head><title>Login Failed</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>❌ Login Failed</h1>
+                    <p>Authentication error: {str(e)}</p>
+                </body>
+            </html>
+            """,
+            status_code=500
+        )
 
 
 @router.post("/logout")
-async def logout(request: LogoutRequest, db: Session = Depends(get_db)):
-    """Logout: Xóa token"""
-    try:
-        auth_logout(db, request.user_id)
-        return {"message": "Logged out successfully", "user_id": request.user_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def logout(
+    user_id: int = Query(..., description="User ID", gt=0),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Logout user - delete OAuth token
+    
+    - **user_id**: User ID to logout (required)
+    """
+    success = auth_logout(db, user_id)
+    return {
+        "success": success,
+        "message": "Logged out successfully" if success else "Logout failed",
+        "user_id": user_id
+    }
 

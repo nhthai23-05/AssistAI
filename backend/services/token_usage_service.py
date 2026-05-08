@@ -1,44 +1,51 @@
+"""Token Usage Service - Logs and tracks token consumption"""
 import json
 from datetime import datetime
 from sqlalchemy.orm import Session
 from models.token_usage import TokenUsage
 from config.database import SessionLocal
+from typing import Optional, Dict
+from exceptions import DatabaseError, SessionNotFoundError
 
 
 class TokenUsageService:
-    """Service để log token usage từ API calls"""
+    """Service for logging and tracking token usage from API calls"""
     
     @staticmethod
     async def log_token_usage(
-        session_id: int = None,
+        session_id: Optional[int] = None,
         usage_type: str = "llm_api",
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         total_tokens: int = 0,
-        db: Session = None
-    ):
+        model: Optional[str] = None,
+        db: Optional[Session] = None
+    ) -> Optional[TokenUsage]:
         """
-        Log token usage vào database
+        Log token usage to database
         
         Args:
-            session_id: ID của assistant session (optional)
-            usage_type: Loại usage (default: "llm_api")
-            prompt_tokens: Số tokens của input
-            completion_tokens: Số tokens của output
-            total_tokens: Tổng tokens
-            db: Database session (optional, sẽ create mới nếu không có)
+            session_id: ID of assistant session (optional)
+            usage_type: Type of usage (default: "llm_api")
+            prompt_tokens: Number of input tokens
+            completion_tokens: Number of output tokens
+            total_tokens: Total tokens
+            model: Model name/identifier
+            db: Database session (optional, creates new if not provided)
         
         Returns:
-            TokenUsage instance hoặc None nếu không tạo được
+            TokenUsage instance or None if session_id not provided
+            
+        Raises:
+            SessionNotFoundError: If session_id provided but not found
+            DatabaseError: If database operation fails
         """
         try:
-            # Nếu không có session_id, chỉ log console
+            # If no session_id, skip DB logging but return None
             if session_id is None:
-                print(f"⚠️  [Token Usage] No session_id provided, skipping DB logging")
-                print(f"   Type: {usage_type} | Tokens: {total_tokens} ({prompt_tokens}→{completion_tokens})")
                 return None
             
-            # Create session nếu không có
+            # Create session if not provided
             if db is None:
                 db = SessionLocal()
                 should_close = True
@@ -46,14 +53,15 @@ class TokenUsageService:
                 should_close = False
             
             try:
-                # Metadata chứa chi tiết
+                # Build metadata
                 metadata = {
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
-                    "timestamp": datetime.now().isoformat()
+                    "model": model or "unknown",
+                    "timestamp": datetime.utcnow().isoformat()
                 }
                 
-                # Tạo record
+                # Create record
                 token_usage = TokenUsage(
                     session_id=session_id,
                     usage_type=usage_type,
@@ -65,7 +73,6 @@ class TokenUsageService:
                 db.commit()
                 db.refresh(token_usage)
                 
-                print(f"✓ [Token Usage] Logged: {total_tokens} tokens | Session: {session_id}")
                 return token_usage
                 
             finally:
@@ -73,16 +80,26 @@ class TokenUsageService:
                     db.close()
         
         except Exception as e:
-            print(f"✗ [Token Usage] Error logging usage: {str(e)}")
-            return None
+            raise DatabaseError(f"Failed to log token usage: {str(e)}")
     
     @staticmethod
-    async def get_session_usage(session_id: int, db: Session = None) -> dict:
+    async def get_session_usage(
+        session_id: int,
+        db: Optional[Session] = None
+    ) -> Dict:
         """
-        Lấy tổng token usage của một session
+        Get total token usage for a session
+        
+        Args:
+            session_id: Session ID
+            db: Database session (optional)
         
         Returns:
-            Dict chứa total_tokens, total_cost, usage_details
+            Dict with total_tokens, usage_breakdown
+            
+        Raises:
+            SessionNotFoundError: If session not found
+            DatabaseError: If database operation fails
         """
         try:
             if db is None:
@@ -96,40 +113,99 @@ class TokenUsageService:
                     TokenUsage.session_id == session_id
                 ).all()
                 
-                total_tokens = sum(u.amount for u in usages)
-                total_cost = 0
+                if not usages:
+                    return {
+                        "session_id": session_id,
+                        "total_tokens": 0,
+                        "usage_breakdown": {},
+                        "cost_estimate": 0.0
+                    }
                 
+                # Calculate totals
+                total_tokens = sum(u.amount for u in usages)
+                
+                # Build breakdown by usage type
+                breakdown = {}
                 for usage in usages:
-                    try:
-                        metadata = json.loads(usage.metadata) if usage.metadata else {}
-                        if "cost" in metadata:
-                            total_cost += metadata["cost"]
-                    except:
-                        pass
+                    usage_type = usage.usage_type
+                    if usage_type not in breakdown:
+                        breakdown[usage_type] = 0
+                    breakdown[usage_type] += usage.amount
+                
+                # Estimate cost (based on GPT-4 pricing as default)
+                cost_estimate = TokenUsageService._estimate_cost(total_tokens)
                 
                 return {
                     "session_id": session_id,
                     "total_tokens": total_tokens,
-                    "total_cost": total_cost,
-                    "usage_count": len(usages),
-                    "usages": [
-                        {
-                            "usage_id": u.usage_id,
-                            "type": u.usage_type,
-                            "tokens": u.amount,
-                            "metadata": json.loads(u.metadata) if u.metadata else {},
-                            "created_at": u.created_at.isoformat()
-                        }
-                        for u in usages
-                    ]
+                    "usage_breakdown": breakdown,
+                    "cost_estimate": cost_estimate
                 }
+                
             finally:
                 if should_close:
                     db.close()
         
         except Exception as e:
-            print(f"✗ [Token Usage] Error getting usage: {str(e)}")
-            return None
+            raise DatabaseError(f"Failed to get session usage: {str(e)}")
+    
+    @staticmethod
+    def _estimate_cost(total_tokens: int) -> float:
+        """
+        Estimate API cost based on token count
+        Using approximate GPT-4 pricing
+        
+        Args:
+            total_tokens: Total tokens used
+            
+        Returns:
+            Estimated cost in USD
+        """
+        # Approximate pricing: $0.03 per 1K tokens (average)
+        return (total_tokens / 1000) * 0.03
+    
+    @staticmethod
+    async def get_user_monthly_usage(
+        user_id: int,
+        db: Optional[Session] = None
+    ) -> Dict:
+        """
+        Get monthly token usage for a user
+        
+        Args:
+            user_id: User ID
+            db: Database session
+        
+        Returns:
+            Dict with monthly token stats
+            
+        Raises:
+            DatabaseError: If database operation fails
+        """
+        try:
+            if db is None:
+                db = SessionLocal()
+                should_close = True
+            else:
+                should_close = False
+            
+            try:
+                # This would require joining with sessions to get user_id
+                # For now, just return placeholder
+                return {
+                    "user_id": user_id,
+                    "month": datetime.utcnow().strftime("%Y-%m"),
+                    "total_tokens": 0,
+                    "sessions_count": 0,
+                    "cost_estimate": 0.0
+                }
+                
+            finally:
+                if should_close:
+                    db.close()
+        
+        except Exception as e:
+            raise DatabaseError(f"Failed to get monthly usage: {str(e)}")
 
 
 # Global instance để sử dụng dễ

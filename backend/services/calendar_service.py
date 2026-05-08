@@ -1,17 +1,26 @@
+"""Google Calendar Service"""
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session
-from services.auth_service import get_credentials_for_user, has_valid_token
+from services.auth_service import get_credentials_for_user
 from config.config import settings
-from typing import Optional
+from typing import Optional, List, Dict
 import datetime
+from exceptions import (
+    GoogleCalendarError,
+    NoOAuthTokenError,
+    EventConflictError,
+    ValidationError,
+    EventNotFoundError,
+)
 
 
 SCOPES = settings.google_scopes_list
 
 
-def get_calendar_service(db: Session, user_id: int) -> Optional:
+def get_calendar_service(db: Session, user_id: int) -> object:
     """
     Authenticate and return Calendar service for user
     
@@ -20,62 +29,65 @@ def get_calendar_service(db: Session, user_id: int) -> Optional:
         user_id: User ID
         
     Returns:
-        Google Calendar service object, or None if authentication fails
+        Google Calendar service object
+        
+    Raises:
+        NoOAuthTokenError: If user has no valid OAuth token
+        GoogleCalendarError: If service creation fails
     """
     try:
-        # Get credentials from DB
         creds = get_credentials_for_user(db, user_id)
-        
-        if not creds:
-            print(f"❌ No credentials found for user {user_id}")
-            return None
         
         # Check and refresh if needed
         if creds.expired and creds.refresh_token:
             try:
-                print("⏳ Refreshing expired token...")
                 creds.refresh(Request())
-                # Note: oauth_token_service will auto-update in DB via has_valid_token
-                print("✅ Token refreshed")
             except Exception as e:
-                print(f"❌ Token refresh failed: {e}")
-                return None
+                raise GoogleCalendarError(f"Token refresh failed: {str(e)}")
         
-        # Build and return Calendar service
         service = build('calendar', 'v3', credentials=creds)
-        print(f"✅ Calendar service created for user {user_id}")
         return service
         
+    except NoOAuthTokenError:
+        raise
+    except GoogleCalendarError:
+        raise
     except Exception as e:
-        print(f"❌ Failed to create calendar service: {e}")
-        return None
+        raise GoogleCalendarError(f"Failed to create calendar service: {str(e)}")
 
 
-async def list_events(db: Session, user_id: int, max_results: int = 100):
+async def list_events(
+    db: Session,
+    user_id: int,
+    max_results: int = 100,
+    days_ahead: int = 7
+) -> List[Dict]:
     """
-    Get list of events from today to next 7 days
+    Get list of events from today to next N days
     
     Args:
         db: Database session
-        user_id: User ID  
+        user_id: User ID
         max_results: Maximum results to return
+        days_ahead: Number of days to look ahead (default: 7)
         
     Returns:
-        List of events
+        List of event dicts
+        
+    Raises:
+        NoOAuthTokenError: If user has no valid OAuth token
+        GoogleCalendarError: If calendar operation fails
     """
     try:
         service = get_calendar_service(db, user_id)
-        
-        if not service:
-            return {"error": f"Failed to authenticate for user {user_id}"}
         
         # Get from 00:00 today
         today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         time_min = today.isoformat() + 'Z'
         
-        # Đến 23:59 ngày thứ 7
-        week_end = today + datetime.timedelta(days=7)
-        time_max = week_end.isoformat() + 'Z'
+        # To end of N days ahead
+        end_date = today + datetime.timedelta(days=days_ahead)
+        time_max = end_date.isoformat() + 'Z'
         
         events_result = service.events().list(
             calendarId='primary',
@@ -85,178 +97,214 @@ async def list_events(db: Session, user_id: int, max_results: int = 100):
             singleEvents=True,
             orderBy='startTime'
         ).execute()
+        
         return events_result.get('items', [])
-    except Exception as e:
-        print(f"❌ Failed to list events: {e}")
+        
+    except (NoOAuthTokenError, GoogleCalendarError):
         raise
+    except HttpError as e:
+        raise GoogleCalendarError(f"Calendar API error: {str(e)}")
+    except Exception as e:
+        raise GoogleCalendarError(f"Failed to list events: {str(e)}")
 
 
-async def insert_events(
+async def create_event(
     db: Session,
     user_id: int,
     summary: str,
-    description: str = None,
-    start_datetime: str = None,  # Format: '2026-01-18T10:00:00+07:00'
-    end_datetime: str = None,    # Format: '2026-01-18T11:00:00+07:00'
-    recurrence: list = None,     # RRULE format, ví dụ: ['RRULE:FREQ=DAILY;COUNT=5']
-    attendees: list = None,
-    location: str = None
-):
+    start_datetime: str,
+    end_datetime: str,
+    description: Optional[str] = None,
+    recurrence: Optional[List[str]] = None,
+    attendees: Optional[List[str]] = None,
+    location: Optional[str] = None
+) -> Dict:
     """
     Create an event in user's calendar
     
     Args:
         db: Database session
         user_id: User ID
-        summary: Event title
+        summary: Event title (required)
+        start_datetime: Start time ISO format (required)
+        end_datetime: End time ISO format (required)
         description: Event description
-        start_datetime: Start time
-        end_datetime: End time
-        recurrence: Recurrence rules
+        recurrence: RRULE format list
         attendees: List of attendee emails
         location: Event location
+        
+    Returns:
+        Created event dict
+        
+    Raises:
+        ValidationError: If required fields are missing or invalid
+        NoOAuthTokenError: If user has no valid OAuth token
+        GoogleCalendarError: If event creation fails
     """
+    # Validate required fields
+    if not summary or not summary.strip():
+        raise ValidationError("Event summary cannot be empty")
+    if not start_datetime or not end_datetime:
+        raise ValidationError("Start and end times are required")
+    
     try:
         service = get_calendar_service(db, user_id)
         
-        if not service:
-            return {"error": f"Failed to authenticate for user {user_id}"}
-        
-        # Tạo event object
+        # Create event object
         event = {
-            'summary': summary,
+            'summary': summary.strip(),
+            'start': {
+                'dateTime': start_datetime,
+                'timeZone': 'UTC',
+            },
+            'end': {
+                'dateTime': end_datetime,
+                'timeZone': 'UTC',
+            }
         }
         
-        # Thêm các trường optional
         if description:
             event['description'] = description
-        
-        if start_datetime and end_datetime:
-            event['start'] = {
-                'dateTime': start_datetime,
-                'timeZone': 'Asia/Ho_Chi_Minh',
-            }
-            event['end'] = {
-                'dateTime': end_datetime,
-                'timeZone': 'Asia/Ho_Chi_Minh',
-            }
         
         if recurrence:
             event['recurrence'] = recurrence
         
         if attendees:
-            event['attendees'] = [{'email': email} for email in attendees]
+            event['attendees'] = [{'email': email.strip()} for email in attendees if email.strip()]
         
         if location:
             event['location'] = location
         
-        # Tạo event
         created_event = service.events().insert(
             calendarId='primary',
             body=event,
             sendUpdates='all'
         ).execute()
         
-        print(f"✅ Event created: {created_event.get('htmlLink')}")
         return created_event
         
-    except Exception as e:
-        print(f"❌ Failed to create event: {e}")
+    except (ValidationError, NoOAuthTokenError, GoogleCalendarError):
         raise
+    except HttpError as e:
+        raise GoogleCalendarError(f"Calendar API error: {str(e)}")
+    except Exception as e:
+        raise GoogleCalendarError(f"Failed to create event: {str(e)}")
 
 
-async def update_events(
+async def update_event(
     db: Session,
     user_id: int,
     event_id: str,
-    summary: str = None,
-    start_datetime: str = None,
-    end_datetime: str = None,
-    description: str = None,
-    recurrence: list = None,
-    attendees: list = None,
-    location: str = None
-):
+    summary: Optional[str] = None,
+    start_datetime: Optional[str] = None,
+    end_datetime: Optional[str] = None,
+    description: Optional[str] = None,
+    recurrence: Optional[List[str]] = None,
+    attendees: Optional[List[str]] = None,
+    location: Optional[str] = None
+) -> Dict:
     """
-    Cập nhật event trong Google Calendar
+    Update an event in user's calendar
     
     Args:
-        event_id: ID của event cần update (BẮT BUỘC)
-        summary: Tên event mới
-        start_datetime: Thời gian bắt đầu mới
-        end_datetime: Thời gian kết thúc mới
-        description: Mô tả mới
-        recurrence: Quy tắc lặp lại mới
-        attendees: Danh sách email người tham gia mới
-        location: Địa điểm mới
+        db: Database session
+        user_id: User ID
+        event_id: Event ID to update (required)
+        summary: New event title
+        start_datetime: New start time
+        end_datetime: New end time
+        description: New description
+        recurrence: New recurrence rules
+        attendees: New attendee list
+        location: New location
+        
+    Returns:
+        Updated event dict
+        
+    Raises:
+        ValidationError: If event_id is missing
+        EventNotFoundError: If event not found
+        NoOAuthTokenError: If user has no valid OAuth token
+        GoogleCalendarError: If update fails
     """
+    if not event_id:
+        raise ValidationError("Event ID is required")
+    
     try:
         service = get_calendar_service(db, user_id)
         
-        if not service:
-            return {"error": f"Failed to authenticate for user {user_id}"}
-        
-        # Lấy event hiện tại
+        # Get current event
         event = service.events().get(
             calendarId='primary',
             eventId=event_id
         ).execute()
         
-        # Cập nhật các trường được cung cấp
-        if summary:
-            event['summary'] = summary
+        # Update only provided fields
+        if summary is not None:
+            event['summary'] = summary.strip()
         
-        if description is not None: 
+        if description is not None:
             event['description'] = description
         
-        if start_datetime and end_datetime:
-            event['start'] = {
-                'dateTime': start_datetime,
-                'timeZone': 'Asia/Ho_Chi_Minh',
-            }
-            event['end'] = {
-                'dateTime': end_datetime,
-                'timeZone': 'Asia/Ho_Chi_Minh',
-            }
+        if start_datetime is not None and end_datetime is not None:
+            event['start'] = {'dateTime': start_datetime, 'timeZone': 'UTC'}
+            event['end'] = {'dateTime': end_datetime, 'timeZone': 'UTC'}
         
         if recurrence is not None:
             event['recurrence'] = recurrence
         
         if attendees is not None:
-            event['attendees'] = [{'email': email} for email in attendees]
+            event['attendees'] = [{'email': email.strip()} for email in attendees if email.strip()]
         
         if location is not None:
             event['location'] = location
         
-        # Cập nhật event
         updated_event = service.events().update(
             calendarId='primary',
             eventId=event_id,
             body=event,
-            sendUpdates='all'  # Gửi thông báo cho attendees
+            sendUpdates='all'
         ).execute()
         
-        print(f"✓ Đã cập nhật event: {updated_event.get('htmlLink')}")
         return updated_event
         
-    except Exception as e:
-        print(f"✗ Lỗi khi cập nhật event: {e}")
+    except (ValidationError, NoOAuthTokenError, GoogleCalendarError):
         raise
+    except HttpError as e:
+        if e.resp.status == 404:
+            raise EventNotFoundError(event_id=event_id)
+        raise GoogleCalendarError(f"Calendar API error: {str(e)}")
+    except Exception as e:
+        raise GoogleCalendarError(f"Failed to update event: {str(e)}")
 
-async def delete_events(db: Session, user_id: int, event_id: str):
+
+async def delete_event(
+    db: Session,
+    user_id: int,
+    event_id: str
+) -> bool:
     """
-    Delete event from user's calendar
+    Delete an event from user's calendar
     
     Args:
         db: Database session
         user_id: User ID
         event_id: Event ID to delete
+        
+    Returns:
+        True if successful
+        
+    Raises:
+        ValidationError: If event_id is missing
+        EventNotFoundError: If event not found
+        NoOAuthTokenError: If user has no valid OAuth token
+        GoogleCalendarError: If deletion fails
     """
+    if not event_id:
+        raise ValidationError("Event ID is required")
+    
     try:
         service = get_calendar_service(db, user_id)
-        
-        if not service:
-            return {"error": f"Failed to authenticate for user {user_id}"}
         
         service.events().delete(
             calendarId='primary',
@@ -264,9 +312,13 @@ async def delete_events(db: Session, user_id: int, event_id: str):
             sendUpdates='all'
         ).execute()
         
-        print(f"✓ Đã xóa event ID: {event_id}")
-        return {"message": "Event deleted successfully", "event_id": event_id}
+        return True
         
-    except Exception as e:
-        print(f"✗ Lỗi khi xóa event: {e}")
+    except (ValidationError, NoOAuthTokenError, GoogleCalendarError):
         raise
+    except HttpError as e:
+        if e.resp.status == 404:
+            raise EventNotFoundError(event_id=event_id)
+        raise GoogleCalendarError(f"Calendar API error: {str(e)}")
+    except Exception as e:
+        raise GoogleCalendarError(f"Failed to delete event: {str(e)}")

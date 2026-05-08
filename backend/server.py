@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.config import settings
 from routers import auth, calendar, chat
+from exceptions import register_exception_handlers
 
 app = FastAPI(title="AssistAI Backend")
 
@@ -13,6 +14,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register custom exception handlers
+register_exception_handlers(app)
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])

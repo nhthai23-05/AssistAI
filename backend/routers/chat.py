@@ -1,50 +1,66 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from typing import Optional
+"""Chat Router - Handles chat endpoints"""
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from config.database import get_db
 from services.chat_service import ChatService
 from services.auth_service import has_valid_token
+from schemas.chat import ChatMessageRequest, ChatMessageResponse
+from schemas.error import ErrorResponse
+from exceptions import (
+    NoValidTokenError,
+    ValidationError,
+)
 
 router = APIRouter(tags=["chat"])
-chat_service = ChatService()
 
-class ChatRequest(BaseModel):
-    message: str
-    history: list = []
 
-class ChatResponse(BaseModel):
-    response: str
-    action: Optional[str] = None
-    data: Optional[dict] = None
-
-@router.post("/message", response_model=ChatResponse)
+@router.post("/message", response_model=ChatMessageResponse)
 async def send_message(
-    request: ChatRequest,
-    user_id: int = Query(..., description="User ID"),
+    request: ChatMessageRequest,
+    user_id: int = Query(..., description="User ID", gt=0),
+    session_id: int = Query(None, description="Session ID (optional)", gt=0),
+    db: Session = Depends(get_db)
+) -> ChatMessageResponse:
+    """
+    Send message to AI chatbot
+    
+    - **message**: User message (required)
+    - **history**: Chat history (optional)
+    - **user_id**: User ID (required)
+    - **session_id**: Session ID (optional)
+    """
+    # Validate authentication
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+    
+    # Send message and get response
+    result = await ChatService.send_message(
+        db=db,
+        user_id=user_id,
+        message=request.message,
+        session_id=session_id,
+        history=request.history
+    )
+    
+    return ChatMessageResponse(**result)
+
+
+@router.get("/history")
+async def get_message_history(
+    session_id: int = Query(..., description="Session ID", gt=0),
+    limit: int = Query(10, description="Limit messages", ge=1, le=50),
+    user_id: int = Query(..., description="User ID", gt=0),
     db: Session = Depends(get_db)
 ):
     """
-    Gửi message đến AI chatbot
+    Get message history for a session
     
-    - **message**: Tin nhắn của user
-    - **history**: Lịch sử hội thoại (optional)
-    - **user_id**: User ID (required)
+    - **session_id**: Session ID (required)
+    - **limit**: Max messages to retrieve (default: 10)
     """
-    try:
-        # Check authentication
-        if not has_valid_token(db, user_id):
-            raise HTTPException(
-                status_code=401,
-                detail="Not authenticated or token expired"
-            )
-        
-        result = await chat_service.send_message(
-            message=request.message,
-            history=request.history,
-            user_id=user_id,
-            db=db
-        )
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Validate authentication
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+    
+    history = ChatService.get_message_history(db, session_id, limit)
+    return {"session_id": session_id, "messages": history}

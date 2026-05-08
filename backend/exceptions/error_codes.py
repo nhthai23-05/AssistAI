@@ -1,0 +1,80 @@
+"""
+Error code to HTTP status mapping
+"""
+
+ERROR_CODE_TO_STATUS = {
+    # Authentication (401, 403)
+    "AUTH_FAILED": 401,
+    "INVALID_CREDENTIALS": 401,
+    "INVALID_EMAIL": 401,
+    "TOKEN_EXPIRED": 401,
+    "TOKEN_REFRESH_FAILED": 401,
+    "NO_VALID_TOKEN": 401,
+    "NO_OAUTH_TOKEN": 401,
+    "PERMISSION_DENIED": 403,
+    
+    # Not Found (404)
+    "USER_NOT_FOUND": 404,
+    "SESSION_NOT_FOUND": 404,
+    "WORKSPACE_NOT_FOUND": 404,
+    "CALENDAR_NOT_FOUND": 404,
+    "EVENT_NOT_FOUND": 404,
+    "MESSAGE_NOT_FOUND": 404,
+    "CONNECTED_ACCOUNT_NOT_FOUND": 404,
+    "SHEET_NOT_FOUND": 404,
+    "INTEGRATION_NOT_FOUND": 404,
+    
+    # Validation (400)
+    "VALIDATION_ERROR": 400,
+    "INVALID_REQUEST": 400,
+    "INVALID_EMAIL": 400,
+    "INVALID_DATETIME": 400,
+    "INVALID_EVENT_TIME": 400,
+    "INVALID_STATE": 400,
+    "INTEGRATION_NOT_CONFIGURED": 400,
+    "WORKSPACE_NOT_CONFIGURED": 400,
+    
+    # Conflict (409)
+    "CONFLICT": 409,
+    "EVENT_CONFLICT": 409,
+    "SESSION_ALREADY_COMPLETED": 409,
+    "USER_DUPLICATE": 409,
+    "SESSION_DUPLICATE": 409,
+    "WORKSPACE_DUPLICATE": 409,
+    "CALENDAR_DUPLICATE": 409,
+    "EVENT_DUPLICATE": 409,
+    "MESSAGE_DUPLICATE": 409,
+    "CONNECTED_ACCOUNT_DUPLICATE": 409,
+    "SHEET_DUPLICATE": 409,
+    "INTEGRATION_DUPLICATE": 409,
+    
+    # Unprocessable Entity (422)
+    "PROCESSING_ERROR": 422,
+    "LLM_PROCESSING_ERROR": 422,
+    "JSON_PARSE_ERROR": 422,
+    "EVENT_PARSING_ERROR": 422,
+    "ACTION_DETECTION_ERROR": 422,
+    
+    # Rate Limit / Quota (429)
+    "RATE_LIMIT_EXCEEDED": 429,
+    "QUOTA_EXCEEDED": 429,
+    
+    # External Service Error (503)
+    "EXTERNAL_SERVICE_ERROR": 503,
+    "GOOGLE_CALENDAR_ERROR": 503,
+    "GOOGLE_SHEETS_ERROR": 503,
+    "GOOGLE_OAUTH_ERROR": 503,
+    "OPENAI_ERROR": 503,
+    
+    # Server Error (500)
+    "DATABASE_ERROR": 500,
+    "TRANSACTION_ERROR": 500,
+    "INTERNAL_ERROR": 500,
+    "CONFIGURATION_ERROR": 500,
+    "ENVIRONMENT_VARIABLE_MISSING": 500,
+}
+
+
+def get_status_code_for_error(error_code: str) -> int:
+    """Get HTTP status code for error code, defaults to 500 for unknown codes"""
+    return ERROR_CODE_TO_STATUS.get(error_code, 500)

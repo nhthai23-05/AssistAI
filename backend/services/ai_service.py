@@ -1,19 +1,31 @@
-import openai
+"""AI Service - LLM integration with exception handling"""
 import json
 import re
 from pathlib import Path
+from typing import Dict, List, Optional, Any
+from openai import OpenAI
 from config.config import settings
-from services.token_usage_service import token_usage_service
+from services.token_usage_service import TokenUsageService
+from exceptions import (
+    LLMProcessingError,
+    JSONParseError,
+    ActionDetectionError,
+    DatabaseError,
+)
 
 PROMPT_PATH = Path(__file__).parent.parent / "prompt"
+token_usage_service = TokenUsageService()
+openai_client = OpenAI(api_key=settings.llm_api_key)
 
-openai.api_key = settings.llm_api_key
 
-def extract_json(text: str) -> str:
+def _extract_json(text: str) -> str:
     """
-    Extract JSON từ response của GPT (có thể wrapped trong markdown code block)
+    Extract JSON from LLM response (may be wrapped in markdown code block)
+    
+    Raises:
+        JSONParseError: If no valid JSON found in response
     """
-    # Loại bỏ markdown code block nếu có
+    # Remove markdown code block if present
     if "```json" in text:
         match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
         if match:
@@ -23,156 +35,127 @@ def extract_json(text: str) -> str:
         if match:
             return match.group(1)
     
-    # Tìm JSON object đầu tiên
+    # Find first JSON object
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
         return match.group(0)
     
-    return text
+    raise JSONParseError(f"No valid JSON found in response: {text[:100]}...")
+
 
 async def chat_completion(
-    message: str, 
-    prompt_file: str = None, 
-    context: dict = None, 
-    session_id: int = None,
-    user_id: int = None
+    message: str,
+    prompt_file: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None,
+    session_id: Optional[int] = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """
-    Gọi OpenAI API với prompt template từ file
+    Call OpenAI API with optional prompt template
     
     Args:
-        message: Tin nhắn từ user
-        prompt_file: Tên file prompt trong thư mục prompt/ (ví dụ: "choose_events.txt")
-        context: Dictionary chứa biến để thay thế trong prompt template
-        session_id: ID của assistant session (optional, for token usage tracking)
-        user_id: User ID (optional, for context/audit)
+        message: User message
+        prompt_file: Prompt template filename in prompt/ directory
+        context: Dict of variables to substitute in template
+        session_id: Session ID for token tracking
+        user_id: User ID for context
     
     Returns:
-        Response từ OpenAI API
+        LLM response text
+    
+    Raises:
+        LLMProcessingError: If OpenAI API call fails
+        JSONParseError: If response parsing fails (if JSON extraction needed)
+        DatabaseError: If token logging fails
     """
     try:
-        # Nếu có prompt file, đọc và format với context
+        # Build full message with prompt template if provided
         if prompt_file:
             prompt_path = PROMPT_PATH / prompt_file
             if prompt_path.exists():
                 prompt_template = prompt_path.read_text(encoding='utf-8')
                 
-                # Thay thế biến trong template nếu có context
+                # Substitute context variables in template
                 if context:
                     for key, value in context.items():
                         prompt_template = prompt_template.replace(f"{{{key}}}", str(value))
                 
-                # Kết hợp prompt template với message
                 full_message = f"{prompt_template}\n\nUser input: {message}"
             else:
                 full_message = message
         else:
             full_message = message
         
-        # DEBUG: In ra prompt info
-        print("="*80)
-        print("DEBUG - Full Prompt Length:", len(full_message))
-        print("DEBUG - First 500 chars:")
-        print(full_message[:500])
-        print("="*80)
-        
-        # Sử dụng OpenAI API mới (>= 1.0)
-        from openai import OpenAI
-        client = OpenAI(api_key=openai.api_key)
-        
-        print("DEBUG - Calling OpenAI API...")
-        print(f"DEBUG - Model: {settings.llm_model}")
-        
-        response = client.chat.completions.create(
-            model=settings.llm_model,
-            messages=[{"role": "user", "content": full_message}],
-            max_tokens=settings.llm_max_tokens
-        )
-        
-        result = response.choices[0].message.content
-        
-        print(f"DEBUG - Response received, length: {len(result) if result else 0}")
-        
-        if not result or result.strip() == "":
-            raise ValueError("OpenAI returned empty response")
-        
-        # Log token usage
-        if hasattr(response, 'usage') and response.usage:
-            await token_usage_service.log_token_usage(
-                session_id=session_id,
-                usage_type="llm_api",
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens
+        # Call OpenAI API
+        try:
+            response = openai_client.chat.completions.create(
+                model=settings.llm_model,
+                messages=[{"role": "user", "content": full_message}],
+                max_tokens=settings.llm_max_tokens,
+                temperature=0.7,
+            )
+        except Exception as e:
+            raise LLMProcessingError(
+                f"OpenAI API call failed: {str(e)}",
+                details={"message_length": len(full_message)}
             )
         
+        # Extract response content
+        if not response.choices or not response.choices[0].message.content:
+            raise LLMProcessingError("OpenAI returned empty response")
+        
+        result = response.choices[0].message.content.strip()
+        
+        # Log token usage if session_id provided
+        if session_id and hasattr(response, 'usage') and response.usage:
+            try:
+                await token_usage_service.log_token_usage(
+                    session_id=session_id,
+                    usage_type="llm_api",
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    total_tokens=response.usage.total_tokens,
+                    model=settings.llm_model,
+                )
+            except DatabaseError:
+                # Token logging failure should not block main operation
+                pass
+        
         return result
-        
-    except Exception as e:
-        error_msg = f"OpenAI API Error: {str(e)}"
-        print(f"❌ {error_msg}")
-        
-        # In thêm thông tin debug
-        import traceback
-        print("Full traceback:")
-        traceback.print_exc()
-        
-        raise Exception(error_msg)
-
-async def smart_event_operation(user_request: str, events_list: list, operation: str = "update", session_id: int = None) -> dict:
-    try:
-        # Format events list thành text dễ đọc
-        events_text = "\n".join([
-            f"ID: {event.get('id')}\n"
-            f"Tên: {event.get('summary')}\n"
-            f"Bắt đầu: {event.get('start', {}).get('dateTime', event.get('start', {}).get('date'))}\n"
-            f"Kết thúc: {event.get('end', {}).get('dateTime', event.get('end', {}).get('date'))}\n"
-            f"Địa điểm: {event.get('location', 'N/A')}\n"
-            for event in events_list
-        ])
-        
-        context = {
-            "events": events_text,
-            "request": user_request
-        }
-        
-        # Chọn prompt file tương ứng
-        prompt_file = "choose_events.txt" if operation == "update" else "delete_event.txt"
-        
-        response = await chat_completion(
-            message=user_request,
-            prompt_file=prompt_file,
-            context=context,
-            session_id=session_id
-        )
-        
-        # DEBUG: In ra response từ Chatgpt
-        print("="*80)
-        print(f"DEBUG - GPT Response ({operation}):")
-        print(response)
-        print("="*80)
-        
-        json_str = extract_json(response)       
-        result = json.loads(json_str)
-        return result
-        
-    except Exception as e:
-        print(f"Lỗi khi thực hiện {operation} event: {e}")
-        print(f"Response was: {response if 'response' in locals() else 'No response'}")
+    
+    except (LLMProcessingError, JSONParseError, DatabaseError):
         raise
+    except Exception as e:
+        raise LLMProcessingError(f"Unexpected error in chat_completion: {str(e)}")
 
-async def parse_event_creation(user_request: str, current_date: str = None, events_list: list = None, session_id: int = None) -> dict:
+async def parse_event_creation(
+    user_request: str,
+    current_date: Optional[str] = None,
+    events_list: Optional[List[Dict]] = None,
+    session_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
-    Sử dụng GPT để phân tích yêu cầu tạo event và chuyển thành cấu trúc dữ liệu
+    Parse user request into event creation structure
     
     Args:
-        user_request: Yêu cầu của user (ví dụ: "tạo meeting với team vào 3pm mai")
-        current_date: Ngày hiện tại để GPT có context thời gian
-        events_list: Danh sách events hiện tại để tránh xung đột
-        session_id: ID của assistant session (optional, for token usage tracking)
+        user_request: User request (e.g., "create meeting with team at 3pm tomorrow")
+        current_date: Current date for LLM context
+        events_list: Existing events to avoid conflicts
+        session_id: Session ID for token tracking
     
     Returns:
-        Dict chứa thông tin event cần tạo
+        Dict with event creation parameters:
+            - summary: Event title
+            - start_datetime: Start time ISO format
+            - end_datetime: End time ISO format
+            - description: (optional) Event description
+            - location: (optional) Event location
+            - attendees: (optional) List of attendee emails
+            - recurrence: (optional) RRULE list
+    
+    Raises:
+        LLMProcessingError: If LLM call fails
+        JSONParseError: If response is not valid JSON
     """
     try:
         from datetime import datetime
@@ -180,7 +163,7 @@ async def parse_event_creation(user_request: str, current_date: str = None, even
         if not current_date:
             current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Format events list nếu có
+        # Format events list if provided
         if events_list:
             events_text = "\n".join([
                 f"- {event.get('summary', 'No title')}: "
@@ -189,71 +172,154 @@ async def parse_event_creation(user_request: str, current_date: str = None, even
                 for event in events_list
             ])
         else:
-            events_text = "Không có events nào trong tuần này"
+            events_text = "No events this week"
         
         context = {
             "request": user_request,
             "current_date": current_date,
-            "events": events_text
+            "events": events_text,
         }
         
         response = await chat_completion(
             message=user_request,
             prompt_file="create_event.txt",
             context=context,
-            session_id=session_id
+            session_id=session_id,
         )
         
-        # DEBUG: In ra response để xem
-        print("="*80)
-        print("DEBUG - GPT Response:")
-        print(response)
-        print("="*80)
+        # Parse JSON response
+        try:
+            json_str = _extract_json(response)
+            result = json.loads(json_str)
+        except JSONParseError:
+            raise
+        except json.JSONDecodeError as e:
+            raise JSONParseError(f"Invalid JSON in LLM response: {str(e)}")
         
-        # Extract và parse JSON response từ GPT
-        json_str = extract_json(response)
-        print("DEBUG - Extracted JSON:")
-        print(json_str)
-        print("="*80)
-        
-        result = json.loads(json_str)
         return result
-        
-    except Exception as e:
-        print(f"Lỗi khi phân tích event creation: {e}")
-        print(f"Response was: {response if 'response' in locals() else 'No response'}")
+    
+    except (LLMProcessingError, JSONParseError):
         raise
+    except Exception as e:
+        raise LLMProcessingError(f"Event parsing failed: {str(e)}")
 
-async def detect_calendar_action(user_request: str, session_id: int = None) -> dict:
+
+async def detect_calendar_action(
+    user_request: str,
+    session_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
-    Sử dụng LLM để phát hiện action từ user request
+    Detect calendar action type from user request
     
     Args:
-        user_request: Yêu cầu của user
-        session_id: ID của assistant session (optional, for token usage tracking)
+        user_request: User request
+        session_id: Session ID for token tracking
     
     Returns:
-        Dict chứa action, confidence, reasoning
+        Dict with:
+            - action: "create", "update", or "delete"
+            - confidence: Float 0-1
+            - reasoning: Explanation of detected action
+    
+    Raises:
+        ActionDetectionError: If action detection fails
     """
     try:
-        context = {
-            "request": user_request
-        }
+        context = {"request": user_request}
         
         response = await chat_completion(
             message=user_request,
             prompt_file="detect_action.txt",
             context=context,
-            session_id=session_id
+            session_id=session_id,
         )
         
-        # Extract và parse JSON
-        json_str = extract_json(response)
-        result = json.loads(json_str)
+        # Parse JSON response
+        try:
+            json_str = _extract_json(response)
+            result = json.loads(json_str)
+        except (JSONParseError, json.JSONDecodeError) as e:
+            raise ActionDetectionError(f"Failed to parse action detection response: {str(e)}")
+        
+        # Validate required fields
+        if "action" not in result:
+            raise ActionDetectionError("Response missing 'action' field")
+        
+        # Set defaults for optional fields
+        result.setdefault("confidence", 0.8)
+        result.setdefault("reasoning", "Action detected from user request")
         
         return result
-        
+    
+    except (ActionDetectionError, LLMProcessingError):
+        raise
     except Exception as e:
-        print(f"Lỗi khi detect action: {e}")
-        # Fallback về create nếu có lỗi
-        return {"action": "create", "confidence": 0.5, "reasoning": "Error - defaulting to create"}
+        raise ActionDetectionError(f"Action detection failed: {str(e)}")
+
+
+async def smart_event_operation(
+    user_request: str,
+    events_list: List[Dict],
+    operation: str = "update",
+    session_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Perform smart calendar operation (update/delete based on natural language)
+    
+    Args:
+        user_request: User request (e.g., "change meeting to 2pm")
+        events_list: List of existing events
+        operation: "update" or "delete"
+        session_id: Session ID for token tracking
+    
+    Returns:
+        Dict with:
+            - event_id: ID of matched event
+            - updates: (for update) Dict of changes
+            - event_summary: Event name/summary
+            - reasoning: Explanation of action
+    
+    Raises:
+        LLMProcessingError: If LLM call fails
+        JSONParseError: If response is not valid JSON
+    """
+    try:
+        # Format events list
+        events_text = "\n".join([
+            f"ID: {event.get('id')}\n"
+            f"Title: {event.get('summary')}\n"
+            f"Start: {event.get('start', {}).get('dateTime', event.get('start', {}).get('date'))}\n"
+            f"End: {event.get('end', {}).get('dateTime', event.get('end', {}).get('date'))}\n"
+            f"Location: {event.get('location', 'N/A')}\n"
+            for event in events_list
+        ])
+        
+        context = {
+            "events": events_text,
+            "request": user_request,
+            "operation": operation,
+        }
+        
+        # Choose prompt file
+        prompt_file = "choose_events.txt" if operation == "update" else "delete_event.txt"
+        
+        response = await chat_completion(
+            message=user_request,
+            prompt_file=prompt_file,
+            context=context,
+            session_id=session_id,
+        )
+        
+        # Parse JSON response
+        try:
+            json_str = _extract_json(response)
+            result = json.loads(json_str)
+        except (JSONParseError, json.JSONDecodeError) as e:
+            raise JSONParseError(f"Invalid JSON in event operation response: {str(e)}")
+        
+        return result
+    
+    except (LLMProcessingError, JSONParseError):
+        raise
+    except Exception as e:
+        raise LLMProcessingError(f"Smart event operation failed: {str(e)}")

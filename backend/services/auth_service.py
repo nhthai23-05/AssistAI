@@ -10,12 +10,20 @@ from services.user_service import UserService
 from services.oauth_token_service import OAuthTokenService
 from typing import Optional, Dict, Tuple
 from datetime import datetime, timedelta
+from exceptions import (
+    GoogleOAuthError,
+    InvalidEmailError,
+    NoOAuthTokenError,
+    TokenExpiredError,
+    TokenRefreshFailedError,
+    NoValidTokenError,
+)
 
 CONFIG_PATH = Path(__file__).parent.parent / "config"
 SCOPES = settings.google_scopes_list
 
 
-def _exchange_code_for_token(code: str, code_verifier: str) -> Optional[Dict]:
+def _exchange_code_for_token(code: str, code_verifier: str) -> Dict:
     """
     Exchange authorization code for access token using PKCE
     
@@ -24,7 +32,10 @@ def _exchange_code_for_token(code: str, code_verifier: str) -> Optional[Dict]:
         code_verifier: PKCE code verifier
         
     Returns:
-        Dict with token data, or None if failed
+        Dict with token data
+        
+    Raises:
+        GoogleOAuthError: If token exchange fails
     """
     try:
         token_url = "https://oauth2.googleapis.com/token"
@@ -37,16 +48,17 @@ def _exchange_code_for_token(code: str, code_verifier: str) -> Optional[Dict]:
             "grant_type": "authorization_code"
         }
         
-        response = requests.post(token_url, data=data)
+        response = requests.post(token_url, data=data, timeout=10)
         response.raise_for_status()
         return response.json()
     
+    except requests.exceptions.RequestException as e:
+        raise GoogleOAuthError(f"Failed to exchange authorization code: {str(e)}")
     except Exception as e:
-        print(f"❌ Failed to exchange code for token: {e}")
-        return None
+        raise GoogleOAuthError(f"Unexpected error during token exchange: {str(e)}")
 
 
-def _get_google_user_info(access_token: str) -> Optional[Dict]:
+def _get_google_user_info(access_token: str) -> Dict:
     """
     Get user info from Google using access token
     
@@ -54,46 +66,64 @@ def _get_google_user_info(access_token: str) -> Optional[Dict]:
         access_token: Google access token
         
     Returns:
-        Dict with 'email' and 'name', or None if failed
+        Dict with 'email' and 'name'
+        
+    Raises:
+        GoogleOAuthError: If user info retrieval fails
+        InvalidEmailError: If email is invalid
     """
     try:
         response = requests.get(
             "https://www.googleapis.com/oauth2/v2/userinfo",
-            headers={"Authorization": f"Bearer {access_token}"}
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10
         )
         response.raise_for_status()
         data = response.json()
+        
+        email = data.get('email')
+        if not email or '@' not in email:
+            raise InvalidEmailError(email or "")
+        
         return {
-            'email': data.get('email'),
-            'name': data.get('name', data.get('email', 'User'))
+            'email': email,
+            'name': data.get('name', email.split('@')[0])
         }
+    
+    except InvalidEmailError:
+        raise
+    except requests.exceptions.RequestException as e:
+        raise GoogleOAuthError(f"Failed to get user info from Google: {str(e)}")
     except Exception as e:
-        print(f"❌ Failed to get Google user info: {e}")
-        return None
+        raise GoogleOAuthError(f"Unexpected error getting user info: {str(e)}")
 
 
-def handle_oauth_callback(code: str, code_verifier: str, db: Session) -> Optional[Dict]:
+def handle_oauth_callback(code: str, code_verifier: str, db: Session) -> Dict:
     """
-    Xử lý callback từ Google
-    - Exchange code để lấy credentials (với PKCE code_verifier)
-    - Lấy user info từ Google
-    - Tạo/update User trong DB
-    - Lưu token vào DB (encrypted)
+    Handle OAuth callback from Google
+    - Exchange code to get credentials (with PKCE code_verifier)
+    - Get user info from Google
+    - Create/update User in DB
+    - Save encrypted token to DB
     
     Args:
-        code: Authorization code từ Google
+        code: Authorization code from Google
         code_verifier: PKCE code verifier
         db: Database session
         
     Returns:
-        Dict with user_id and email, or None if failed
+        Dict with user_id, email, and name
+        
+    Raises:
+        GoogleOAuthError: If OAuth process fails
+        InvalidEmailError: If email is invalid
     """
     try:
         # Exchange authorization code for token (with PKCE)
         token_data = _exchange_code_for_token(code, code_verifier)
-        if not token_data or "access_token" not in token_data:
-            print("❌ Failed to exchange code for token")
-            return None
+        
+        if "access_token" not in token_data:
+            raise GoogleOAuthError("No access token in response")
         
         # Create credentials object from token data
         credentials = Credentials(
@@ -105,27 +135,22 @@ def handle_oauth_callback(code: str, code_verifier: str, db: Session) -> Optiona
             scopes=SCOPES
         )
         
-        # Lấy user info từ Google
+        # Get user info from Google
         user_info = _get_google_user_info(credentials.token)
-        if not user_info or not user_info.get('email'):
-            print("❌ Failed to get user email from Google")
-            return None
         
-        # Tạo hoặc update User trong DB
+        # Create or get User in DB
         existing_user = UserService.get_user(db, user_info['email'])
         if existing_user:
             user = existing_user
-            is_created = False
         else:
             user = UserService.create_user(db, user_info['email'], user_info['name'])
-            is_created = True
         
         # Calculate access token expiry
         expires_at = None
         if "expires_in" in token_data:
             expires_at = datetime.utcnow() + timedelta(seconds=token_data["expires_in"])
         
-        # Lưu token vào DB (encrypted)
+        # Save encrypted token to DB
         OAuthTokenService.save_token(
             db=db,
             user_id=user.user_id,
@@ -137,37 +162,38 @@ def handle_oauth_callback(code: str, code_verifier: str, db: Session) -> Optiona
             account_email=user_info['email']
         )
         
-        print(f"✅ User {user_info['email']} authenticated successfully (ID: {user.user_id})")
-        
         return {
             'user_id': user.user_id,
             'email': user.email,
             'name': user.name
         }
         
+    except (GoogleOAuthError, InvalidEmailError):
+        raise
     except Exception as e:
-        print(f"❌ OAuth callback failed: {e}")
-        return None
+        raise GoogleOAuthError(f"OAuth callback failed: {str(e)}")
 
 
 def get_credentials_for_user(db: Session, user_id: int) -> Optional[Credentials]:
     """
-    Load credentials từ DB (decrypted)
+    Load credentials from DB (decrypted)
     
     Args:
         db: Database session
         user_id: User ID
         
     Returns:
-        Google Credentials object, or None if not found/malformed
+        Google Credentials object, or None if not found
+        
+    Raises:
+        NoOAuthTokenError: If user has no valid token
     """
-    token_data = OAuthTokenService.get_decrypted_credentials(db, user_id)
-    
-    if not token_data:
-        print(f"❌ No token found for user {user_id}")
-        return None
-    
     try:
+        token_data = OAuthTokenService.get_decrypted_credentials(db, user_id)
+        
+        if not token_data:
+            raise NoOAuthTokenError("Google")
+        
         credentials = Credentials(
             token=token_data['access_token'],
             refresh_token=token_data.get('refresh_token'),
@@ -179,9 +205,10 @@ def get_credentials_for_user(db: Session, user_id: int) -> Optional[Credentials]
         
         return credentials
         
+    except NoOAuthTokenError:
+        raise
     except Exception as e:
-        print(f"❌ Error creating credentials object for user {user_id}: {e}")
-        return None
+        raise NoOAuthTokenError(f"Failed to load credentials: {str(e)}")
 
 
 def has_valid_token(db: Session, user_id: int) -> bool:
@@ -195,26 +222,20 @@ def has_valid_token(db: Session, user_id: int) -> bool:
         user_id: User ID
         
     Returns:
-        True if valid token exists
+        True if valid token exists, False otherwise
     """
     try:
         credentials = get_credentials_for_user(db, user_id)
-        
-        if not credentials:
-            return False
         
         # Check if expired
         if credentials.expired:
             # Try to refresh
             if credentials.refresh_token:
                 try:
-                    print("⏳ Token expired, refreshing...")
                     credentials.refresh(Request())
                     
                     # Update token in DB with new access token
-                    expires_at = None
-                    if credentials.expiry:
-                        expires_at = credentials.expiry
+                    expires_at = credentials.expiry if hasattr(credentials, 'expiry') else None
                     
                     OAuthTokenService.update_token_expiry(
                         db=db,
@@ -223,21 +244,17 @@ def has_valid_token(db: Session, user_id: int) -> bool:
                         expires_at=expires_at
                     )
                     
-                    print("✅ Token refreshed successfully")
                     return True
                     
                 except Exception as refresh_error:
-                    print(f"❌ Token refresh failed: {refresh_error}")
                     return False
             else:
-                print("❌ Token expired and no refresh_token available")
                 return False
         
         # Token still valid
         return True
         
-    except Exception as e:
-        print(f"❌ Error checking token for user {user_id}: {e}")
+    except:
         return False
 
 
@@ -254,8 +271,6 @@ def logout(db: Session, user_id: int) -> bool:
     """
     try:
         OAuthTokenService.delete_token(db, user_id)
-        print(f"✅ User {user_id} logged out")
         return True
     except Exception as e:
-        print(f"❌ Logout failed for user {user_id}: {e}")
         return False
