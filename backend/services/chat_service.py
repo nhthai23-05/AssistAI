@@ -1,11 +1,13 @@
-"""Chat Service - Handles AI chat with message persistence"""
-from services.ai_service import chat_completion
-from services.token_usage_service import TokenUsageService
-from sqlalchemy.orm import Session
-from models.message import Message
-from models.assistant_session import AssistantSession
+"""Chat Service - AI chat with message persistence and intent parsing"""
+import time
 from typing import Optional, Dict, List
-from datetime import datetime
+from sqlalchemy.orm import Session
+
+from services.ai_service import parse_user_intent
+from models.message import Message, MessageRole
+from models.assistant_session import AssistantSession, SessionStatus
+from models.workspace import Workspace, WorkspaceStatus
+from schemas.chat import ChatActionData
 from exceptions import (
     SessionNotFoundError,
     LLMProcessingError,
@@ -15,182 +17,260 @@ from exceptions import (
 
 
 class ChatService:
-    """Service for handling chat with AI and message persistence"""
-    
+
+    @staticmethod
+    def get_or_create_workspace(db: Session, user_id: int) -> int:
+        """Return user's first active workspace ID, creating a default one if needed."""
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.owner_user_id == user_id,
+                Workspace.status == WorkspaceStatus.ACTIVE,
+            )
+            .first()
+        )
+        if workspace:
+            return workspace.workspace_id
+
+        workspace = Workspace(
+            owner_user_id=user_id,
+            name="Personal",
+            status=WorkspaceStatus.ACTIVE,
+        )
+        db.add(workspace)
+        db.flush()
+        return workspace.workspace_id
+
+    @staticmethod
+    def create_session(db: Session, user_id: int, title: Optional[str] = None) -> AssistantSession:
+        """Create a new chat session for the user."""
+        try:
+            workspace_id = ChatService.get_or_create_workspace(db, user_id)
+            session = AssistantSession(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                title=title,
+                status=SessionStatus.ACTIVE,
+            )
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+            return session
+        except Exception as e:
+            db.rollback()
+            raise DatabaseError(f"Failed to create session: {str(e)}")
+
     @staticmethod
     async def send_message(
         db: Session,
         user_id: int,
         message: str,
         session_id: Optional[int] = None,
+        image_base64: Optional[str] = None,
         history: Optional[List] = None,
     ) -> Dict:
         """
-        Send message to AI chatbot and persist to database
-        
-        Args:
-            db: Database session
-            user_id: User ID (for audit)
-            message: User message
-            session_id: Session ID (optional, will create new if not provided)
-            history: Chat history (optional, used for context)
-            
-        Returns:
-            Dict with response, action, and data
-            
+        Send message to AI, persist to DB, return structured response.
+
         Raises:
             ValidationError: If message is empty
-            SessionNotFoundError: If session not found
-            LLMProcessingError: If AI processing fails
-            DatabaseError: If database operation fails
+            SessionNotFoundError: If given session_id does not exist
+            LLMProcessingError: If AI call fails
+            DatabaseError: If DB write fails
         """
         if not message or not message.strip():
             raise ValidationError("Message cannot be empty")
-        
+
         try:
-            # Get or validate session
+            # Get or create session
             if session_id:
                 session = db.query(AssistantSession).filter(
                     AssistantSession.session_id == session_id,
-                    AssistantSession.user_id == user_id
+                    AssistantSession.user_id == user_id,
                 ).first()
                 if not session:
                     raise SessionNotFoundError(session_id=session_id)
-            
-            # Build context from history
-            context_str = ChatService._build_context(history or [])
-            full_message = f"{context_str}\n\nUser: {message}" if context_str else message
-            
-            # Call AI service
+            else:
+                session = ChatService.create_session(db, user_id)
+                session_id = session.session_id
+
+            t_start = time.monotonic()
+
+            # Fetch categories for intent parsing (best-effort, non-blocking)
+            categories: List[str] = []
             try:
-                response = await chat_completion(
-                    message=full_message,
-                    prompt_file="chat.txt",
+                from config.config import settings
+                from services.sheets_service import get_categories as fetch_categories
+                if settings.google_sheet_id:
+                    categories = fetch_categories(db, user_id, settings.google_sheet_id)
+            except Exception:
+                pass
+
+            # Parse intent via AI
+            try:
+                intent_result = await parse_user_intent(
+                    message=message,
+                    categories=categories,
+                    image_base64=image_base64,
                     session_id=session_id,
-                    user_id=user_id
                 )
             except Exception as e:
                 raise LLMProcessingError(f"AI processing failed: {str(e)}")
-            
-            # Persist user message to database
+
+            thinking_ms = int((time.monotonic() - t_start) * 1000)
+
+            # Build response text and actions list
+            intent = intent_result.get("intent", "chat")
+            data = intent_result.get("data", {})
+
+            if intent == "chat":
+                response_text = data.get("response", "")
+                actions = None
+            else:
+                response_text = (
+                    "Tôi đã phân tích yêu cầu của bạn. "
+                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                )
+                actions = [
+                    ChatActionData(
+                        action_type=intent,
+                        action_status="pending",
+                        data=data,
+                    )
+                ]
+
+            # Persist user message + assistant response
             try:
                 user_msg = Message(
                     session_id=session_id,
-                    user_id=user_id,
+                    role=MessageRole.USER,
                     content=message,
-                    role="user",
-                    created_at=datetime.utcnow()
                 )
                 db.add(user_msg)
-                
-                # Persist assistant response
+
                 assistant_msg = Message(
                     session_id=session_id,
-                    user_id=user_id,
-                    content=response.get('response', ''),
-                    role="assistant",
-                    created_at=datetime.utcnow()
+                    role=MessageRole.ASSISTANT,
+                    content=response_text,
                 )
                 db.add(assistant_msg)
                 db.commit()
-                
+                db.refresh(assistant_msg)
             except Exception as e:
                 db.rollback()
                 raise DatabaseError(f"Failed to persist messages: {str(e)}")
-            
-            # Log token usage if available
-            if response.get('usage'):
-                try:
-                    await TokenUsageService.log_token_usage(
-                        session_id=session_id,
-                        usage_type="llm_api",
-                        prompt_tokens=response['usage'].get('prompt_tokens', 0),
-                        completion_tokens=response['usage'].get('completion_tokens', 0),
-                        total_tokens=response['usage'].get('total_tokens', 0),
-                        db=db
-                    )
-                except Exception:
-                    pass  # Don't fail if token logging fails
-            
+
             return {
-                'response': response.get('response', ''),
-                'action': response.get('action'),
-                'data': response.get('data'),
-                'message_id': assistant_msg.message_id if session_id else None
+                "message_id": assistant_msg.message_id,
+                "session_id": session_id,
+                "response": response_text,
+                "actions": actions,
+                "tokens_used": 0,
+                "thinking_time_ms": thinking_ms,
+                "created_at": assistant_msg.created_at,
             }
-            
+
         except (ValidationError, SessionNotFoundError, LLMProcessingError, DatabaseError):
             raise
         except Exception as e:
             raise LLMProcessingError(f"Chat error: {str(e)}")
-    
+
     @staticmethod
     def _build_context(history: List) -> str:
-        """
-        Build context string from message history
-        
-        Args:
-            history: List of message dicts with 'role' and 'content' keys
-            
-        Returns:
-            Context string
-        """
         if not history:
             return ""
-        
-        context_lines = []
-        for msg in history[-10:]:  # Use last 10 messages
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
+        lines = []
+        for msg in history[-10:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
             if content:
-                context_lines.append(f"{role}: {content}")
-        
-        return "\n".join(context_lines)
-    
+                lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
     @staticmethod
-    def get_message_history(
-        db: Session,
-        session_id: int,
-        limit: int = 10
-    ) -> List[Dict]:
-        """
-        Get message history for a session
-        
-        Args:
-            db: Database session
-            session_id: Session ID
-            limit: Maximum number of messages to retrieve
-            
-        Returns:
-            List of message dicts
-            
-        Raises:
-            SessionNotFoundError: If session not found
-            DatabaseError: If database operation fails
-        """
+    def get_message_history(db: Session, session_id: int, limit: int = 10) -> List[Dict]:
+        """Return message history for a session, oldest first."""
         try:
-            # Verify session exists
             session = db.query(AssistantSession).filter(
                 AssistantSession.session_id == session_id
             ).first()
             if not session:
                 raise SessionNotFoundError(session_id=session_id)
-            
-            # Get messages
-            messages = db.query(Message).filter(
-                Message.session_id == session_id
-            ).order_by(Message.created_at.desc()).limit(limit).all()
-            
+
+            messages = (
+                db.query(Message)
+                .filter(Message.session_id == session_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+
             return [
                 {
-                    'role': msg.role,
-                    'content': msg.content,
-                    'created_at': msg.created_at.isoformat() if msg.created_at else None
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
                 }
                 for msg in reversed(messages)
             ]
-            
+
         except SessionNotFoundError:
             raise
         except Exception as e:
             raise DatabaseError(f"Failed to get message history: {str(e)}")
+
+    @staticmethod
+    def list_sessions(db: Session, user_id: int, limit: int = 20) -> List[Dict]:
+        """Return non-cancelled sessions for a user, most recent first."""
+        try:
+            sessions = (
+                db.query(AssistantSession)
+                .filter(
+                    AssistantSession.user_id == user_id,
+                    AssistantSession.status != SessionStatus.CANCELLED,
+                )
+                .order_by(AssistantSession.updated_at.desc())
+                .limit(limit)
+                .all()
+            )
+
+            result = []
+            for s in sessions:
+                msg_count = db.query(Message).filter(Message.session_id == s.session_id).count()
+                last_msg = (
+                    db.query(Message)
+                    .filter(Message.session_id == s.session_id)
+                    .order_by(Message.created_at.desc())
+                    .first()
+                )
+                result.append({
+                    "session_id": s.session_id,
+                    "title": s.title,
+                    "message_count": msg_count,
+                    "last_message_at": last_msg.created_at if last_msg else s.created_at,
+                    "total_tokens_used": 0,
+                    "status": s.status.value if hasattr(s.status, "value") else s.status,
+                })
+            return result
+        except Exception as e:
+            raise DatabaseError(f"Failed to list sessions: {str(e)}")
+
+    @staticmethod
+    def delete_session(db: Session, user_id: int, session_id: int) -> bool:
+        """Soft-delete a session by setting status=CANCELLED."""
+        try:
+            session = db.query(AssistantSession).filter(
+                AssistantSession.session_id == session_id,
+                AssistantSession.user_id == user_id,
+            ).first()
+            if not session:
+                raise SessionNotFoundError(session_id=session_id)
+
+            session.status = SessionStatus.CANCELLED
+            db.commit()
+            return True
+        except SessionNotFoundError:
+            raise
+        except Exception as e:
+            db.rollback()
+            raise DatabaseError(f"Failed to delete session: {str(e)}")

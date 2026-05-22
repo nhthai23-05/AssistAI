@@ -10,7 +10,7 @@ from exceptions import NoValidTokenError
 router = APIRouter(tags=["calendar"])
 
 
-@router.get("/events", response_model=EventListResponse)
+@router.get("/events")
 async def get_events(
     user_id: int = Query(..., description="User ID", gt=0),
     max_results: int = Query(100, description="Max events", ge=1, le=500),
@@ -29,10 +29,7 @@ async def get_events(
         raise NoValidTokenError(user_id)
     
     events = await list_events(db, user_id, max_results, days_ahead)
-    return EventListResponse(
-        total=len(events),
-        events=events
-    )
+    return {"events": events, "total": len(events)}
 
 
 @router.post("/events", response_model=EventResponse)

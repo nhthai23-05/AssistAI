@@ -40,8 +40,8 @@ class MainWindow(QMainWindow):
         self.calendar_widget = CalendarWidget()
         self.chat_widget = ChatWidget()
         
-        self.tabs.addTab(self.calendar_widget, "📅 Calendar")
-        self.tabs.addTab(self.chat_widget, "💬 AI Assistant")
+        self.tabs.addTab(self.calendar_widget, "Calendar")
+        self.tabs.addTab(self.chat_widget, "AI Assistant")
         
         main_layout.addWidget(self.tabs)
         
@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(header)
         
         # Logo và title
-        title_label = QLabel(f"🤖 {APP_NAME}")
+        title_label = QLabel(f"{APP_NAME}")
         title_label.setObjectName("title")
         layout.addWidget(title_label)
         
@@ -86,14 +86,14 @@ class MainWindow(QMainWindow):
     def update_ui_auth_state(self):
         """Cập nhật UI theo trạng thái auth"""
         if self.is_authenticated:
-            self.status_label.setText("✅ Logged in")
+            self.status_label.setText("Logged in")
             self.auth_button.setText("Logout")
             self.tabs.setEnabled(True)
             
             # Load calendar events
             self.calendar_widget.load_events()
         else:
-            self.status_label.setText("❌ Not logged in")
+            self.status_label.setText("Not logged in")
             self.auth_button.setText("Login with Google")
             self.tabs.setEnabled(False)
     

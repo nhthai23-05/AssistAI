@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Encryption (SENSITIVE - No defaults)
     # Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
     encryption_key: str
+
+    # Google Sheets — ID from spreadsheet URL (docs.google.com/spreadsheets/d/{ID}/edit)
+    google_sheet_id: str = ""
     
     # App Settings
     app_name: str = "AssistAI Desktop"

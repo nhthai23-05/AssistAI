@@ -47,8 +47,8 @@ class MainWindow(QMainWindow):
         self.calendar_widget = CalendarWidget()
         self.chat_widget = ChatWidget()
         
-        self.tabs.addTab(self.calendar_widget, "📅 Calendar")
-        self.tabs.addTab(self.chat_widget, "💬 AI Assistant")
+        self.tabs.addTab(self.calendar_widget, "Calendar")
+        self.tabs.addTab(self.chat_widget, "AI Assistant")
         
         main_layout.addWidget(self.tabs)
     
@@ -59,14 +59,14 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(header)
         
         # Logo và title
-        title_label = QLabel(f"🤖 {APP_NAME}")
+        title_label = QLabel(f"{APP_NAME}")
         title_label.setObjectName("title")
         layout.addWidget(title_label)
         
         layout.addStretch()
         
         # Status label
-        self.status_label = QLabel("✅ Logged in")
+        self.status_label = QLabel("Logged in")
         self.status_label.setObjectName("status")
         layout.addWidget(self.status_label)
         

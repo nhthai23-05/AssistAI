@@ -49,6 +49,7 @@ async def chat_completion(
     context: Optional[Dict[str, Any]] = None,
     session_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    image_base64: Optional[str] = None,
 ) -> str:
     """
     Call OpenAI API with optional prompt template
@@ -86,11 +87,20 @@ async def chat_completion(
         else:
             full_message = message
         
+        # Build message content (text only or text + image)
+        if image_base64:
+            user_content: Any = [
+                {"type": "text", "text": full_message},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+            ]
+        else:
+            user_content = full_message
+
         # Call OpenAI API
         try:
             response = openai_client.chat.completions.create(
                 model=settings.llm_model,
-                messages=[{"role": "user", "content": full_message}],
+                messages=[{"role": "user", "content": user_content}],
                 max_tokens=settings.llm_max_tokens,
                 temperature=0.7,
             )
@@ -323,3 +333,65 @@ async def smart_event_operation(
         raise
     except Exception as e:
         raise LLMProcessingError(f"Smart event operation failed: {str(e)}")
+
+
+async def parse_user_intent(
+    message: str,
+    categories: Optional[List[str]] = None,
+    image_base64: Optional[str] = None,
+    session_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Classify user message into expense, calendar, or chat intent.
+
+    Returns dict with keys: intent, confidence, data.
+    Falls back to chat intent when confidence < 0.65.
+
+    Raises:
+        LLMProcessingError: If AI call fails
+        JSONParseError: If response is not parseable JSON
+    """
+    from datetime import datetime
+
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    categories_str = ", ".join(categories) if categories else "Ăn uống, Di chuyển, Mua sắm, Giải trí, Khác"
+
+    context = {
+        "current_date": current_date,
+        "categories": categories_str,
+        "message": message,
+    }
+
+    try:
+        response = await chat_completion(
+            message=message,
+            prompt_file="parse_intent.txt",
+            context=context,
+            session_id=session_id,
+            image_base64=image_base64,
+        )
+
+        try:
+            json_str = _extract_json(response)
+            result = json.loads(json_str)
+        except (JSONParseError, json.JSONDecodeError) as e:
+            raise JSONParseError(f"Failed to parse intent response: {str(e)}")
+
+        if "intent" not in result or "data" not in result:
+            raise JSONParseError("Intent response missing required fields")
+
+        result.setdefault("confidence", 0.8)
+
+        if result.get("confidence", 0) < 0.65 and result["intent"] != "chat":
+            result = {
+                "intent": "chat",
+                "confidence": 1.0,
+                "data": {"response": "Bạn có thể nói rõ hơn không? Tôi chưa hiểu rõ yêu cầu của bạn."},
+            }
+
+        return result
+
+    except (LLMProcessingError, JSONParseError):
+        raise
+    except Exception as e:
+        raise LLMProcessingError(f"Intent parsing failed: {str(e)}")

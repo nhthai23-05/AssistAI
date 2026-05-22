@@ -48,14 +48,31 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
     )
 
 
+async def assistai_exception_handler(request: Request, exc) -> JSONResponse:
+    """Handle AssistAIException subclasses using their own status_code."""
+    request_id = request.headers.get("X-Request-ID", str(uuid4()))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error_code": exc.error_code,
+            "message": exc.message,
+            "details": exc.details,
+            "timestamp": datetime.now().isoformat(),
+            "path": str(request.url.path),
+            "request_id": request_id,
+        },
+    )
+
+
 def register_exception_handlers(app):
     """
-    Register all exception handlers with FastAPI app
-    
+    Register all exception handlers with FastAPI app.
+
     Usage in server.py:
         from exceptions.handlers import register_exception_handlers
-        
         app = FastAPI()
         register_exception_handlers(app)
     """
+    from exceptions.base import AssistAIException
+    app.add_exception_handler(AssistAIException, assistai_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)

@@ -2,8 +2,15 @@ backend/.env
 backend/setup/
 backend/__pycache__/
 backend/services/__pycache__/
+backend/config/token.json
+backend/config/oauth_state.json
+backend/config/credentials.json
+backend/*.db
+backend/.pytest_cache/
 setup/
 tests/
+*.db
+assistai.db
 
 # Python
 __pycache__/
@@ -25,3 +32,5 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+.claude/

@@ -137,18 +137,10 @@ class CalendarWidget(QWidget):
         chat_layout = QVBoxLayout(chat_frame)
         
         # Title
-        chat_title = QLabel("💬 AI Assistant - Natural Language Commands")
+        chat_title = QLabel("AI Assistant - Natural Language Commands")
         chat_title.setObjectName("chatTitle")
         chat_layout.addWidget(chat_title)
         
-        # Examples
-        examples = QLabel(
-            "<i>Examples: 'Create meeting tomorrow 3pm' | "
-            "'Move client call to Friday 2pm' | "
-            "'Delete meeting on Monday'</i>"
-        )
-        examples.setWordWrap(True)
-        chat_layout.addWidget(examples)
         
         # Chat history (mini)
         self.chat_history = QTextEdit()

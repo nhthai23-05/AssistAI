@@ -5,12 +5,10 @@ from datetime import datetime
 
 class ChatMessageRequest(BaseModel):
     """Schema for sending a message to the chat"""
-    session_id: int = Field(..., description="Session ID this message belongs to")
+    session_id: Optional[int] = Field(None, description="Session ID (created automatically if omitted)")
     message: str = Field(..., min_length=1, max_length=10000, description="User message content")
-    include_context: bool = Field(
-        True, 
-        description="Whether to include conversation history for context"
-    )
+    image_base64: Optional[str] = Field(None, description="Base64-encoded image (JPEG/PNG)")
+    include_context: bool = Field(True, description="Whether to include conversation history for context")
 
 
 class ChatActionData(BaseModel):
