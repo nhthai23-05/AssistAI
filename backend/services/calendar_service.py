@@ -60,7 +60,8 @@ async def list_events(
     db: Session,
     user_id: int,
     max_results: int = 100,
-    days_ahead: int = 7
+    days_ahead: int = 7,
+    days_back: int = 0,
 ) -> List[Dict]:
     """
     Get list of events from today to next N days
@@ -81,9 +82,9 @@ async def list_events(
     try:
         service = get_calendar_service(db, user_id)
         
-        # Get from 00:00 today
+        # Get from days_back days before today
         today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        time_min = today.isoformat() + 'Z'
+        time_min = (today - datetime.timedelta(days=days_back)).isoformat() + 'Z'
         
         # To end of N days ahead
         end_date = today + datetime.timedelta(days=days_ahead)
@@ -117,7 +118,8 @@ async def create_event(
     description: Optional[str] = None,
     recurrence: Optional[List[str]] = None,
     attendees: Optional[List[str]] = None,
-    location: Optional[str] = None
+    location: Optional[str] = None,
+    timezone: str = "Asia/Ho_Chi_Minh",
 ) -> Dict:
     """
     Create an event in user's calendar
@@ -155,11 +157,11 @@ async def create_event(
             'summary': summary.strip(),
             'start': {
                 'dateTime': start_datetime,
-                'timeZone': 'UTC',
+                'timeZone': timezone,
             },
             'end': {
                 'dateTime': end_datetime,
-                'timeZone': 'UTC',
+                'timeZone': timezone,
             }
         }
         
@@ -201,7 +203,8 @@ async def update_event(
     description: Optional[str] = None,
     recurrence: Optional[List[str]] = None,
     attendees: Optional[List[str]] = None,
-    location: Optional[str] = None
+    location: Optional[str] = None,
+    timezone: str = "Asia/Ho_Chi_Minh",
 ) -> Dict:
     """
     Update an event in user's calendar
@@ -247,8 +250,8 @@ async def update_event(
             event['description'] = description
         
         if start_datetime is not None and end_datetime is not None:
-            event['start'] = {'dateTime': start_datetime, 'timeZone': 'UTC'}
-            event['end'] = {'dateTime': end_datetime, 'timeZone': 'UTC'}
+            event['start'] = {'dateTime': start_datetime, 'timeZone': timezone}
+            event['end'] = {'dateTime': end_datetime, 'timeZone': timezone}
         
         if recurrence is not None:
             event['recurrence'] = recurrence

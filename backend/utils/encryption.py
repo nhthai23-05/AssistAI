@@ -2,6 +2,7 @@
 from cryptography.fernet import Fernet
 import os
 from typing import Optional
+from config.config import settings
 
 
 class EncryptionManager:
@@ -18,8 +19,8 @@ class EncryptionManager:
                           python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
         """
         if encryption_key is None:
-            encryption_key = os.getenv("ENCRYPTION_KEY")
-        
+            encryption_key = os.getenv("ENCRYPTION_KEY") or settings.encryption_key
+
         if not encryption_key:
             raise ValueError(
                 "ENCRYPTION_KEY must be provided or set as environment variable. "

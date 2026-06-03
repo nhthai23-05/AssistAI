@@ -5,14 +5,14 @@ from datetime import datetime
 
 class EventCreate(BaseModel):
     """Schema for creating an event via smart action or direct API"""
-    session_id: int = Field(..., description="Associated session ID")
+    session_id: Optional[int] = Field(None, description="Associated session ID")
     summary: str = Field(..., min_length=1, max_length=255, description="Event title")
     start_datetime: datetime = Field(..., description="Event start time (ISO 8601)")
     end_datetime: datetime = Field(..., description="Event end time (ISO 8601)")
     description: Optional[str] = Field(None, max_length=2000, description="Event description")
     location: Optional[str] = Field(None, max_length=500, description="Event location")
     attendees: Optional[List[str]] = Field(None, description="Email addresses of attendees")
-    recurrence: Optional[dict] = Field(None, description="Recurrence rule (iCal format)")
+    recurrence: Optional[List[str]] = Field(None, description="Recurrence rules (RRULE format)")
     timezone: Optional[str] = Field("UTC", description="Timezone for event times")
 
 

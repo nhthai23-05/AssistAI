@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+import openai
 from openai import OpenAI
 from config.config import settings
 from services.token_usage_service import TokenUsageService
@@ -101,14 +102,14 @@ async def chat_completion(
             response = openai_client.chat.completions.create(
                 model=settings.llm_model,
                 messages=[{"role": "user", "content": user_content}],
-                max_tokens=settings.llm_max_tokens,
-                temperature=0.7,
+                max_completion_tokens=settings.llm_max_tokens,
             )
-        except Exception as e:
-            raise LLMProcessingError(
-                f"OpenAI API call failed: {str(e)}",
-                details={"message_length": len(full_message)}
-            )
+        except openai.APIConnectionError as e:
+            raise LLMProcessingError(f"Could not connect to OpenAI: {str(e)}")
+        except openai.RateLimitError as e:
+            raise LLMProcessingError(f"OpenAI rate limit exceeded: {str(e)}")
+        except openai.APIStatusError as e:
+            raise LLMProcessingError(f"OpenAI API error {e.status_code}: {e.message}")
         
         # Extract response content
         if not response.choices or not response.choices[0].message.content:

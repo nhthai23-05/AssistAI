@@ -10,11 +10,26 @@ from exceptions import NoValidTokenError
 router = APIRouter(tags=["calendar"])
 
 
+def _transform_event(item: dict) -> dict:
+    start = item.get("start", {})
+    end = item.get("end", {})
+    return {
+        "event_id": item.get("id"),
+        "summary": item.get("summary", "(Không có tiêu đề)"),
+        "start_datetime": start.get("dateTime") or start.get("date"),
+        "end_datetime": end.get("dateTime") or end.get("date"),
+        "description": item.get("description", ""),
+        "location": item.get("location", ""),
+        "attendees": [a.get("email", "") for a in item.get("attendees", [])],
+    }
+
+
 @router.get("/events")
 async def get_events(
     user_id: int = Query(..., description="User ID", gt=0),
     max_results: int = Query(100, description="Max events", ge=1, le=500),
     days_ahead: int = Query(7, description="Days to look ahead", ge=1, le=90),
+    days_back: int = Query(0, description="Days to look back", ge=0, le=90),
     db: Session = Depends(get_db)
 ):
     """
@@ -28,79 +43,61 @@ async def get_events(
     if not has_valid_token(db, user_id):
         raise NoValidTokenError(user_id)
     
-    events = await list_events(db, user_id, max_results, days_ahead)
+    raw = await list_events(db, user_id, max_results, days_ahead, days_back)
+    events = [_transform_event(e) for e in raw]
     return {"events": events, "total": len(events)}
 
 
-@router.post("/events", response_model=EventResponse)
+@router.post("/events")
 async def create_event_handler(
     request: EventCreate,
     user_id: int = Query(..., description="User ID", gt=0),
     db: Session = Depends(get_db)
 ):
-    """
-    Create a new calendar event
-    
-    - **summary**: Event title (required)
-    - **start_datetime**: Start time ISO format (required)
-    - **end_datetime**: End time ISO format (required)
-    - **description**: Event description (optional)
-    - **location**: Event location (optional)
-    - **attendees**: List of attendee emails (optional)
-    - **recurrence**: RRULE list (optional)
-    """
-    # Validate authentication
     if not has_valid_token(db, user_id):
         raise NoValidTokenError(user_id)
-    
+
     event = await create_event(
         db=db,
         user_id=user_id,
         summary=request.summary,
-        start_datetime=request.start_datetime,
-        end_datetime=request.end_datetime,
+        start_datetime=request.start_datetime.isoformat(),
+        end_datetime=request.end_datetime.isoformat(),
         description=request.description,
         location=request.location,
         attendees=request.attendees,
-        recurrence=request.recurrence
+        recurrence=request.recurrence,
+        timezone=request.timezone or "Asia/Ho_Chi_Minh",
     )
-    
-    return EventResponse(**event)
+
+    return _transform_event(event)
 
 
-@router.put("/events/{event_id}", response_model=EventResponse)
+@router.put("/events/{event_id}")
 async def update_event_handler(
     event_id: str,
     request: EventCreate,
     user_id: int = Query(..., description="User ID", gt=0),
     db: Session = Depends(get_db)
 ):
-    """
-    Update an existing calendar event
-    
-    - **event_id**: Event ID to update (path parameter, required)
-    - **summary**: New event title (optional)
-    - **start_datetime**: New start time (optional)
-    - **end_datetime**: New end time (optional)
-    """
-    # Validate authentication
     if not has_valid_token(db, user_id):
         raise NoValidTokenError(user_id)
-    
+
     event = await update_event(
         db=db,
         user_id=user_id,
         event_id=event_id,
         summary=request.summary,
-        start_datetime=request.start_datetime,
-        end_datetime=request.end_datetime,
+        start_datetime=request.start_datetime.isoformat(),
+        end_datetime=request.end_datetime.isoformat(),
         description=request.description,
         location=request.location,
         attendees=request.attendees,
-        recurrence=request.recurrence
+        recurrence=request.recurrence,
+        timezone=request.timezone or "Asia/Ho_Chi_Minh",
     )
-    
-    return EventResponse(**event)
+
+    return _transform_event(event)
 
 
 @router.delete("/events/{event_id}")

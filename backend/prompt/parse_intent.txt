@@ -7,8 +7,10 @@ Available expense categories: {categories}
 
 Possible intents:
 - "expense": User wants to record a financial transaction (purchase, payment, income)
-- "calendar": User wants to create or manage a calendar event/appointment
-- "chat": General question or conversation unrelated to expense/calendar recording
+- "calendar": User wants to create, update, or delete a calendar event/appointment
+- "read_calendar": User wants to view or query their upcoming/past calendar events (e.g., "tuần tới có gì?", "hôm nay có lịch gì?", "tháng này có meeting nào?")
+- "read_sheet": User wants to view expense history, spending summary, or past transactions (e.g., "tháng này chi bao nhiêu?", "tôi đã mua gì?", "xem lịch sử chi tiêu")
+- "chat": General question or conversation unrelated to expense/calendar
 
 Return format:
 
@@ -37,6 +39,29 @@ For calendar:
   }
 }
 
+For read_calendar:
+{
+  "intent": "read_calendar",
+  "confidence": 0.9,
+  "data": {
+    "days_ahead": 30,
+    "days_back": 0,
+    "limit": 10,
+    "query": "original query phrase, e.g. tuần tới"
+  }
+}
+
+For read_sheet:
+{
+  "intent": "read_sheet",
+  "confidence": 0.9,
+  "data": {
+    "days_back": 30,
+    "limit": 50,
+    "query": "original query phrase, e.g. tháng này"
+  }
+}
+
 For chat:
 {
   "intent": "chat",
@@ -54,5 +79,16 @@ Rules:
 - If confidence < 0.65, use "chat" intent and ask the user to clarify
 - For images: analyze the image content (receipt, invoice, calendar screenshot) and extract relevant data
 - Response language for "chat" intent: Vietnamese
+- read_calendar vs calendar: use "read_calendar" if the user is asking WHAT events exist. Use "calendar" if they want to create, change, or cancel an event.
+- read_sheet vs expense: use "read_sheet" if user asks about past expenses or a summary. Use "expense" if they want to record a new transaction.
+- read_calendar days_back / days_ahead direction rules:
+  * Future queries ("gần nhất", "tiếp theo", "sắp tới", "tuần tới", "tháng này") → days_back=0, days_ahead=N
+  * Past queries ("tuần trước", "tháng trước", "vừa qua", "hôm qua", "gần đây" as past) → days_back=N, days_ahead=0
+  * Spanning both ("tháng 6", specific month) → set both as needed
+  * NEVER set days_back > 0 for "gần nhất"/"tiếp theo" — those always mean upcoming
+- read_calendar days_ahead values: "hôm nay" → 1, "tuần tới/7 ngày" → 7, "tháng này/30 ngày" → 30, "gần nhất/tiếp theo" (no range) → 90
+- read_calendar days_back values: "hôm qua" → 1, "tuần trước" → 7, "tháng trước/30 ngày trước" → 30
+- read_calendar limit: explicit count ("3 sự kiện", "5 lịch") → that number. "gần nhất/tiếp theo" without count → 5. No count/range → 10.
+- read_sheet limit: default 50; use up to 200 for queries like "3 tháng gần đây"
 
 User message: {message}

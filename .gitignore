@@ -34,3 +34,8 @@ ENV/
 Thumbs.db
 
 .claude/
+.agents/
+
+# Frontend (Vite)
+frontend/node_modules/
+frontend/dist/

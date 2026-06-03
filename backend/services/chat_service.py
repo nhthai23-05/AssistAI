@@ -1,9 +1,12 @@
 """Chat Service - AI chat with message persistence and intent parsing"""
+import logging
 import time
 from typing import Optional, Dict, List
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
-from services.ai_service import parse_user_intent
+from services.ai_service import parse_user_intent, detect_calendar_action, smart_event_operation
 from models.message import Message, MessageRole
 from models.assistant_session import AssistantSession, SessionStatus
 from models.workspace import Workspace, WorkspaceStatus
@@ -122,22 +125,143 @@ class ChatService:
             # Build response text and actions list
             intent = intent_result.get("intent", "chat")
             data = intent_result.get("data", {})
+            logger.info("[intent] user_id=%s session=%s intent=%s confidence=%s data=%s",
+                        user_id, session_id, intent,
+                        intent_result.get("confidence"), data)
+            actions = None
 
             if intent == "chat":
                 response_text = data.get("response", "")
-                actions = None
-            else:
+
+            elif intent == "read_calendar":
+                try:
+                    from services.calendar_service import list_events as _list_events
+                    days_ahead = int(data.get("days_ahead", 30))
+                    days_back = int(data.get("days_back", 0))
+                    limit = int(data.get("limit", 10))
+                    logger.info("[read_calendar] days_ahead=%s days_back=%s limit=%s",
+                                days_ahead, days_back, limit)
+                    events = await _list_events(
+                        db, user_id,
+                        max_results=limit,
+                        days_ahead=days_ahead,
+                        days_back=days_back,
+                    )
+                    logger.info("[read_calendar] fetched %s events", len(events))
+                    if not events:
+                        response_text = "Không có sự kiện nào trong khoảng thời gian này."
+                    else:
+                        from datetime import datetime as _dt
+                        lines = ["Đây là lịch của bạn:"]
+                        for e in events:
+                            start = e.get("start", {})
+                            raw_dt = start.get("dateTime", start.get("date", ""))
+                            summary = e.get("summary", "Không có tiêu đề")
+                            location = e.get("location", "")
+                            if "T" in raw_dt:
+                                try:
+                                    parsed = _dt.fromisoformat(raw_dt.replace("Z", "+00:00"))
+                                    dt_str = parsed.strftime("%d/%m %H:%M")
+                                except Exception:
+                                    dt_str = raw_dt
+                            else:
+                                dt_str = raw_dt or "Cả ngày"
+                            line = f"• {dt_str} — {summary}"
+                            if location:
+                                line += f" ({location})"
+                            lines.append(line)
+                        response_text = "\n".join(lines)
+                except Exception:
+                    response_text = "Xin lỗi, tôi không thể lấy lịch của bạn lúc này."
+
+            elif intent == "read_sheet":
+                try:
+                    from config.config import settings as _settings
+                    from services.sheets_service import read_expenses as _read_expenses
+                    if not getattr(_settings, "google_sheet_id", None):
+                        response_text = "Chưa cấu hình Google Sheet."
+                    else:
+                        limit = int(data.get("limit", 50))
+                        expenses = _read_expenses(db, user_id, _settings.google_sheet_id, limit=limit)
+                        if not expenses:
+                            response_text = "Không có khoản chi nào trong khoảng thời gian này."
+                        else:
+                            total = sum(e.get("amount", 0) for e in expenses)
+                            by_cat: Dict[str, float] = {}
+                            for e in expenses:
+                                cat = e.get("category", "Khác")
+                                by_cat[cat] = by_cat.get(cat, 0) + e.get("amount", 0)
+                            lines = [f"Tổng {len(expenses)} giao dịch — {total:,.0f} VNĐ:"]
+                            for cat, amt in sorted(by_cat.items(), key=lambda x: -x[1]):
+                                lines.append(f"• {cat}: {amt:,.0f} VNĐ")
+                            response_text = "\n".join(lines)
+                except Exception:
+                    response_text = "Xin lỗi, tôi không thể đọc dữ liệu thu chi lúc này."
+
+            elif intent == "calendar":
+                try:
+                    action_result = await detect_calendar_action(message, session_id=session_id)
+                    calendar_action = action_result.get("action", "create")
+                except Exception:
+                    calendar_action = "create"
+
+                if calendar_action == "create":
+                    response_text = (
+                        "Tôi đã phân tích yêu cầu của bạn. "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    )
+                    actions = [ChatActionData(action_type="create_event", action_status="pending", data=data)]
+
+                elif calendar_action in ("update", "delete"):
+                    try:
+                        from services.calendar_service import list_events as _list_events
+                        events = await _list_events(db, user_id, days_ahead=30, days_back=7)
+                        op_result = await smart_event_operation(
+                            message, events, calendar_action, session_id=session_id
+                        )
+                        if not op_result.get("event_id"):
+                            response_text = op_result.get(
+                                "error",
+                                "Không tìm thấy sự kiện phù hợp. Bạn có thể mô tả rõ hơn không?"
+                            )
+                        elif calendar_action == "update":
+                            updates = {
+                                k: v for k, v in (op_result.get("updates") or {}).items()
+                                if v is not None
+                            }
+                            event_id = op_result["event_id"]
+                            event_summary = next(
+                                (e.get("summary", "") for e in events if e.get("id") == event_id),
+                                data.get("summary", ""),
+                            )
+                            action_data = {"event_id": event_id, "event_summary": event_summary, **updates}
+                            response_text = "Tôi sẽ cập nhật sự kiện này. Vui lòng xác nhận."
+                            actions = [ChatActionData(action_type="update_event", action_status="pending", data=action_data)]
+                        else:
+                            action_data = {
+                                "event_id": op_result["event_id"],
+                                "event_summary": op_result.get("event_summary", ""),
+                            }
+                            response_text = "Tôi sẽ xóa sự kiện này. Vui lòng xác nhận."
+                            actions = [ChatActionData(action_type="delete_event", action_status="pending", data=action_data)]
+                    except Exception:
+                        response_text = "Không thể xử lý yêu cầu. Vui lòng thử lại."
+                else:
+                    response_text = (
+                        "Tôi đã phân tích yêu cầu của bạn. "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    )
+                    actions = [ChatActionData(action_type="create_event", action_status="pending", data=data)]
+
+            elif intent == "expense":
                 response_text = (
                     "Tôi đã phân tích yêu cầu của bạn. "
                     "Vui lòng xem lại thông tin bên dưới và xác nhận."
                 )
-                actions = [
-                    ChatActionData(
-                        action_type=intent,
-                        action_status="pending",
-                        data=data,
-                    )
-                ]
+                actions = [ChatActionData(action_type="write_sheet", action_status="pending", data=data)]
+
+            else:
+                response_text = data.get("response", "")
 
             # Persist user message + assistant response
             try:

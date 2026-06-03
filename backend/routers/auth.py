@@ -70,7 +70,7 @@ async def login() -> RedirectResponse:
             key="pkce_state",
             value=encrypted_pkce,
             httponly=True,
-            secure=True,
+            secure=False,  # HTTP-safe for localhost; set True in production with HTTPS
             samesite="lax",
             max_age=600  # 10 minutes expiry
         )
