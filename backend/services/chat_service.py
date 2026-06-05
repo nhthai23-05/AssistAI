@@ -206,11 +206,19 @@ class ChatService:
                     calendar_action = "create"
 
                 if calendar_action == "create":
+                    event_list = data if isinstance(data, list) else [data]
+                    count = len(event_list)
                     response_text = (
+                        f"Tôi đã phân tích {count} sự kiện. "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    ) if count > 1 else (
                         "Tôi đã phân tích yêu cầu của bạn. "
                         "Vui lòng xem lại thông tin bên dưới và xác nhận."
                     )
-                    actions = [ChatActionData(action_type="create_event", action_status="pending", data=data)]
+                    actions = [
+                        ChatActionData(action_type="create_event", action_status="pending", data=ev)
+                        for ev in event_list
+                    ]
 
                 elif calendar_action in ("update", "delete"):
                     try:
@@ -254,11 +262,38 @@ class ChatService:
                     actions = [ChatActionData(action_type="create_event", action_status="pending", data=data)]
 
             elif intent == "expense":
+                count = len(data) if isinstance(data, list) else 1
                 response_text = (
+                    f"Tôi đã phân tích {count} khoản chi. "
+                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                ) if count > 1 else (
                     "Tôi đã phân tích yêu cầu của bạn. "
                     "Vui lòng xem lại thông tin bên dưới và xác nhận."
                 )
                 actions = [ChatActionData(action_type="write_sheet", action_status="pending", data=data)]
+
+            elif intent == "batch":
+                expenses = data.get("expenses", [])
+                events = data.get("events", [])
+                parts = []
+                if expenses:
+                    parts.append(f"{len(expenses)} khoản chi")
+                if events:
+                    parts.append(f"{len(events)} sự kiện")
+                response_text = (
+                    "Tôi đã phân tích " + " và ".join(parts) + ". "
+                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                )
+                actions = []
+                if expenses:
+                    actions.append(ChatActionData(
+                        action_type="write_sheet", action_status="pending",
+                        data=expenses if len(expenses) > 1 else expenses[0],
+                    ))
+                for event in events:
+                    actions.append(ChatActionData(
+                        action_type="create_event", action_status="pending", data=event,
+                    ))
 
             else:
                 response_text = data.get("response", "")

@@ -191,7 +191,10 @@ export function ChatModule({ userId, userEmail }) {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         await API.createEvent(userId, { ...action.data, timezone: tz });
       } else if (action.type === "write_sheet") {
-        await API.addExpense(userId, action.data);
+        const items = Array.isArray(action.data) ? action.data : [action.data];
+        for (const item of items) {
+          await API.addExpense(userId, item);
+        }
       } else if (action.type === "update_event") {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const { event_id, event_summary, ...updates } = action.data;

@@ -63,8 +63,22 @@ const API = {
     apiFetch(`/api/sheets/expenses?user_id=${userId}&limit=${limit}`),
   getCategories: (userId) =>
     apiFetch(`/api/sheets/categories?user_id=${userId}`),
+  getSummary: (userId) =>
+    apiFetch(`/api/sheets/summary?user_id=${userId}`),
   addExpense: (userId, expense) =>
     apiFetch(`/api/sheets/expenses?user_id=${userId}`, { method: "POST", body: expense }),
+  deleteExpense: (userId, rowNumber) =>
+    apiFetch(`/api/sheets/expenses/${rowNumber}?user_id=${userId}`, { method: "DELETE" }),
+  updateExpense: (userId, rowNumber, expense) =>
+    apiFetch(`/api/sheets/expenses/${rowNumber}?user_id=${userId}`, { method: "PUT", body: expense }),
+  updateBalance: (userId, data) =>
+    apiFetch(`/api/sheets/balance?user_id=${userId}`, { method: "PUT", body: data }),
+  updateBudget: (userId, data) =>
+    apiFetch(`/api/sheets/budget?user_id=${userId}`, { method: "PUT", body: data }),
+  addCategory: (userId, data) =>
+    apiFetch(`/api/sheets/categories?user_id=${userId}`, { method: "POST", body: data }),
+  deleteCategory: (userId, data) =>
+    apiFetch(`/api/sheets/categories?user_id=${userId}`, { method: "DELETE", body: data }),
 };
 
 export default API;

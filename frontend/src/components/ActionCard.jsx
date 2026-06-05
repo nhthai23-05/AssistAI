@@ -1,19 +1,84 @@
 import React from 'react';
 import I from './icons';
 
+const FIELD_LABELS = {
+  date: "Ngày", amount: "Số tiền", description: "Mô tả", category: "Danh mục",
+  summary: "Tiêu đề", start_datetime: "Bắt đầu", end_datetime: "Kết thúc",
+  location: "Địa điểm",
+};
+
+function formatAmount(v) {
+  if (typeof v === "number") return v.toLocaleString("vi-VN") + " ₫";
+  return v;
+}
+
+function FieldRow({ k, v }) {
+  const label = FIELD_LABELS[k] || k;
+  const display = k === "amount" ? formatAmount(v) : String(v ?? "");
+  if (!display) return null;
+  return (
+    <div className="ar">
+      <div className="l">{label}</div>
+      <div className="v">{display}</div>
+    </div>
+  );
+}
+
+function ExpenseTable({ items }) {
+  const total = items.reduce((s, x) => s + (x.amount || 0), 0);
+  return (
+    <div className="action-table-wrap">
+      <table className="action-table">
+        <thead>
+          <tr>
+            <th>Ngày</th>
+            <th>Mô tả</th>
+            <th>Danh mục</th>
+            <th style={{ textAlign: "right" }}>Số tiền</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, i) => (
+            <tr key={i}>
+              <td>{item.date || "—"}</td>
+              <td>{item.description || "—"}</td>
+              <td>{item.category || "—"}</td>
+              <td style={{ textAlign: "right" }}>{formatAmount(item.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={3} style={{ textAlign: "right", fontWeight: 600 }}>Tổng</td>
+            <td style={{ textAlign: "right", fontWeight: 600 }}>{formatAmount(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
 export function ActionCard({ action, onAccept, onReject }) {
+  const isMultiExpense = action.type === "write_sheet" && Array.isArray(action.data);
+  const multiCount = isMultiExpense ? action.data.length : 1;
+
   const typeMap = {
     create_event: { title: "Tạo sự kiện mới",   icon: <I.Calendar2/>, accept: "Thêm vào Calendar" },
     update_event: { title: "Cập nhật sự kiện",   icon: <I.Pencil/>,    accept: "Cập nhật" },
     delete_event: { title: "Xóa sự kiện",         icon: <I.Trash/>,     accept: "Xóa" },
-    write_sheet:  { title: "Ghi giao dịch",        icon: <I.Wallet/>,    accept: "Lưu vào Sheet" },
+    write_sheet:  {
+      title: isMultiExpense ? `Ghi ${multiCount} giao dịch` : "Ghi giao dịch",
+      icon: <I.Wallet/>,
+      accept: "Lưu vào Sheet",
+    },
     read_sheet:   { title: "Đọc dữ liệu",          icon: <I.Sheet/>,     accept: "OK" },
   };
   const meta = typeMap[action.type] || typeMap.create_event;
-  const isExpense = action.type === "write_sheet";
 
   const acceptedText = {
-    write_sheet:  "Đã ghi vào Google Sheets",
+    write_sheet:  isMultiExpense
+      ? `Đã ghi ${multiCount} giao dịch vào Google Sheets`
+      : "Đã ghi vào Google Sheets",
     create_event: "Đã thêm vào Google Calendar",
     update_event: "Đã cập nhật sự kiện",
     delete_event: "Đã xóa sự kiện",
@@ -55,12 +120,13 @@ export function ActionCard({ action, onAccept, onReject }) {
         <span className="ai-badge">AI Action</span>
       </div>
       <div className="action-body">
-        {Object.entries(action.data).map(([k, v]) => (
-          <div key={k} className="ar">
-            <div className="l">{k}</div>
-            <div className="v">{v}</div>
-          </div>
-        ))}
+        {isMultiExpense ? (
+          <ExpenseTable items={action.data} />
+        ) : (
+          Object.entries(action.data || {}).map(([k, v]) => (
+            <FieldRow key={k} k={k} v={v} />
+          ))
+        )}
       </div>
       <div className="action-foot">
         <button className="action-btn secondary" onClick={onReject}>

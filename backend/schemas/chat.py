@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 
 
@@ -21,7 +21,7 @@ class ChatActionData(BaseModel):
         "pending",
         description="Status of action: 'pending', 'completed', 'failed'"
     )
-    data: Optional[dict] = Field(None, description="Action-specific data")
+    data: Optional[Any] = Field(None, description="Action-specific data (dict for single item, list for multiple)")
     error: Optional[str] = Field(None, description="Error message if action failed")
 
 

@@ -25,3 +25,30 @@ class ExpenseCreateResponse(BaseModel):
     success: bool
     row_number: Optional[int]
     data: ExpenseRow
+
+
+class SummaryDataResponse(BaseModel):
+    opening_balance: float = Field(..., description="Số dư đầu kỳ (from L8)")
+    closing_balance: float = Field(..., description="Số dư cuối kỳ (from D17)")
+    total_expenses: float = Field(..., description="Tổng chi phí thực tế")
+    total_income: float = Field(..., description="Tổng thu nhập thực tế")
+
+
+class UpdateBalanceRequest(BaseModel):
+    opening_balance: Optional[float] = Field(None, description="New opening balance")
+    closing_balance: Optional[float] = Field(None, description="New closing balance")
+
+
+class UpdateBudgetRequest(BaseModel):
+    category: str = Field(..., description="Category name")
+    budget_amount: float = Field(..., gt=0, description="New budget amount")
+    is_income: bool = Field(False, description="True for income, False for expense")
+
+
+class ManageCategoryRequest(BaseModel):
+    category: str = Field(..., description="Category name")
+    is_income: bool = Field(False, description="True for income, False for expense")
+
+
+class SuccessResponse(BaseModel):
+    success: bool = True

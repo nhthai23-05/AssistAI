@@ -6,15 +6,16 @@ Current date: {current_date}
 Available expense categories: {categories}
 
 Possible intents:
-- "expense": User wants to record a financial transaction (purchase, payment, income)
-- "calendar": User wants to create, update, or delete a calendar event/appointment
+- "expense": User wants to record one or more financial transactions (purchase, payment, income)
+- "calendar": User wants to create, update, or delete one or more calendar events/appointments
+- "batch": User mentions BOTH expenses AND calendar events in the same message
 - "read_calendar": User wants to view or query their upcoming/past calendar events (e.g., "tuần tới có gì?", "hôm nay có lịch gì?", "tháng này có meeting nào?")
 - "read_sheet": User wants to view expense history, spending summary, or past transactions (e.g., "tháng này chi bao nhiêu?", "tôi đã mua gì?", "xem lịch sử chi tiêu")
 - "chat": General question or conversation unrelated to expense/calendar
 
 Return format:
 
-For expense:
+For expense (single):
 {
   "intent": "expense",
   "confidence": 0.95,
@@ -22,11 +23,35 @@ For expense:
     "date": "YYYY-MM-DD",
     "amount": 50000,
     "description": "Short description of the expense",
-    "suggested_category": "Category name matching one from the available list"
+    "category": "Category name matching one from the available list"
   }
 }
 
-For calendar:
+For expense (multiple — use when user lists 2+ transactions):
+{
+  "intent": "expense",
+  "confidence": 0.95,
+  "data": [
+    {"date": "YYYY-MM-DD", "amount": 50000, "description": "...", "category": "..."},
+    {"date": "YYYY-MM-DD", "amount": 30000, "description": "...", "category": "..."}
+  ]
+}
+
+For batch (mixed expenses AND events in the same message):
+{
+  "intent": "batch",
+  "confidence": 0.95,
+  "data": {
+    "expenses": [
+      {"date": "YYYY-MM-DD", "amount": 50000, "description": "...", "category": "..."}
+    ],
+    "events": [
+      {"summary": "Event title", "start_datetime": "YYYY-MM-DDTHH:MM:SS", "end_datetime": "YYYY-MM-DDTHH:MM:SS", "description": "", "location": ""}
+    ]
+  }
+}
+
+For calendar (single event — create/update/delete):
 {
   "intent": "calendar",
   "confidence": 0.9,
@@ -37,6 +62,16 @@ For calendar:
     "description": "Optional description",
     "location": "Optional location"
   }
+}
+
+For calendar (multiple new events — use only when user wants to CREATE 2+ events):
+{
+  "intent": "calendar",
+  "confidence": 0.9,
+  "data": [
+    {"summary": "...", "start_datetime": "YYYY-MM-DDTHH:MM:SS", "end_datetime": "YYYY-MM-DDTHH:MM:SS", "description": "", "location": ""},
+    {"summary": "...", "start_datetime": "YYYY-MM-DDTHH:MM:SS", "end_datetime": "YYYY-MM-DDTHH:MM:SS", "description": "", "location": ""}
+  ]
 }
 
 For read_calendar:
@@ -90,5 +125,8 @@ Rules:
 - read_calendar days_back values: "hôm qua" → 1, "tuần trước" → 7, "tháng trước/30 ngày trước" → 30
 - read_calendar limit: explicit count ("3 sự kiện", "5 lịch") → that number. "gần nhất/tiếp theo" without count → 5. No count/range → 10.
 - read_sheet limit: default 50; use up to 200 for queries like "3 tháng gần đây"
+- Multi-item rules: if user mentions 2+ expenses → use array data for expense intent. If user mentions 2+ new calendar events → use array data for calendar intent. If user mentions BOTH expenses AND events → use batch intent.
+- batch expenses/events arrays must never be empty; if only one side has items, use expense or calendar intent instead.
+- For update/delete calendar actions, always use single "calendar" intent (not batch/array) — those require smart matching.
 
 User message: {message}
