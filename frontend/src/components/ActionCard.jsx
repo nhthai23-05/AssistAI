@@ -12,6 +12,42 @@ function formatAmount(v) {
   return v;
 }
 
+function formatDatetime(raw) {
+  if (!raw) return "";
+  try {
+    const d = new Date(raw);
+    if (raw.includes("T")) {
+      return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+  } catch {
+    return raw;
+  }
+}
+
+function DeleteEventPreview({ data }) {
+  return (
+    <>
+      <div className="ar">
+        <div className="l">Sự kiện</div>
+        <div className="v">{data.event_summary || "—"}</div>
+      </div>
+      {data.start_datetime && (
+        <div className="ar">
+          <div className="l">Bắt đầu</div>
+          <div className="v">{formatDatetime(data.start_datetime)}</div>
+        </div>
+      )}
+      {data.end_datetime && (
+        <div className="ar">
+          <div className="l">Kết thúc</div>
+          <div className="v">{formatDatetime(data.end_datetime)}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function FieldRow({ k, v }) {
   const label = FIELD_LABELS[k] || k;
   const display = k === "amount" ? formatAmount(v) : String(v ?? "");
@@ -122,6 +158,8 @@ export function ActionCard({ action, onAccept, onReject }) {
       <div className="action-body">
         {isMultiExpense ? (
           <ExpenseTable items={action.data} />
+        ) : action.type === "delete_event" ? (
+          <DeleteEventPreview data={action.data || {}} />
         ) : (
           Object.entries(action.data || {}).map(([k, v]) => (
             <FieldRow key={k} k={k} v={v} />

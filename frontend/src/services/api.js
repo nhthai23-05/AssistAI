@@ -51,6 +51,8 @@ const API = {
     }),
   getChatHistory: (userId, sessionId, limit = 50) =>
     apiFetch(`/api/chat/history?user_id=${userId}&session_id=${sessionId}&limit=${limit}`),
+  updateActionStatus: (userId, messageId, actionIdx, status) =>
+    apiFetch(`/api/chat/messages/${messageId}/actions/${actionIdx}?user_id=${userId}&status=${encodeURIComponent(status)}`, { method: "PATCH" }),
 
   // Calendar
   getEvents: (userId, daysAhead = 30, daysBack = 0) =>

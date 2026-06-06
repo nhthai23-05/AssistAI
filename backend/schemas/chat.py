@@ -37,6 +37,7 @@ class ChatMessageResponse(BaseModel):
     tokens_used: int = Field(..., description="Tokens used for this request")
     thinking_time_ms: int = Field(..., description="Time spent generating response (milliseconds)")
     created_at: datetime
+    suggested_title: Optional[str] = Field(None, description="AI-generated title for new chat sessions")
 
 
 class ChatSessionSummary(BaseModel):

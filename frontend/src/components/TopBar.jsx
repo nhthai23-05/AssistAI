@@ -62,9 +62,6 @@ export function TopBar({ title, model, models, onModelChange }) {
       <div className="title"><span className="title-text">{title}</span></div>
       <ModelSelector models={models} value={model} onChange={onModelChange}/>
       <div className="tb-actions">
-        <button className="tb-btn" title="Chia sẻ cuộc trò chuyện">
-          <I.Share/> <span style={{ fontSize: 12.5 }}>Chia sẻ</span>
-        </button>
         <button className="icon-btn" title="Thêm"><I.More/></button>
       </div>
     </header>

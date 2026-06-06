@@ -7,6 +7,17 @@ import { Composer } from '../components/Composer';
 import { MODELS } from '../data/models';
 import API from '../services/api';
 
+function getIntentLabel(actions) {
+  if (!actions || actions.length === 0) return "Trò chuyện";
+  const types = actions.map(a => a.type);
+  if (types.some(t => t === "write_income_sheet")) return "Thu nhập";
+  if (types.some(t => t === "write_sheet")) return "Chi tiêu";
+  if (types.some(t => t === "create_event")) return "Tạo lịch";
+  if (types.some(t => t === "update_event")) return "Cập nhật lịch";
+  if (types.some(t => t === "delete_event")) return "Xóa lịch";
+  return "Trò chuyện";
+}
+
 export function ChatModule({ userId, userEmail }) {
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -51,6 +62,7 @@ export function ChatModule({ userId, userEmail }) {
         const msgs = (data.messages || []).map(m => ({
           role: m.role === "assistant" ? "ai" : "user",
           text: m.content,
+          messageId: m.message_id,
           ...(m.actions?.length ? {
             actions: m.actions.map(a => ({ type: a.action_type, status: a.action_status, data: a.data || {} }))
           } : {}),
@@ -124,13 +136,30 @@ export function ChatModule({ userId, userEmail }) {
     const img = imageBase64;
     if ((!text && !img) || isTyping) return;
 
-    const currentConv = conversations.find(c => c.id === activeId);
+    let currentConv = conversations.find(c => c.id === activeId);
+    let convId = activeId;
 
-    updateActive(c => ({
+    // Auto-create a conversation if none is active
+    if (!currentConv) {
+      convId = "c-" + Math.random().toString(36).slice(2, 9);
+      currentConv = {
+        id: convId,
+        sessionId: null,
+        title: "Cuộc trò chuyện",
+        updatedAt: Date.now(),
+        pinned: false,
+        model,
+        messages: [],
+        messagesLoaded: true,
+      };
+      setConversations(prev => [currentConv, ...prev]);
+      setActiveId(convId);
+    }
+
+    const update = (mutator) => setConversations(prev => prev.map(c => c.id === convId ? mutator(c) : c));
+
+    update(c => ({
       ...c,
-      title: c.messages.length === 0
-        ? (text || "Ảnh hóa đơn").slice(0, 56) + ((text || "").length > 56 ? "…" : "")
-        : c.title,
       messages: [...c.messages, { role: "user", text, ...(img ? { image: img } : {}) }],
       updatedAt: Date.now(),
     }));
@@ -149,7 +178,7 @@ export function ChatModule({ userId, userEmail }) {
       if (!currentConv?.sessionId && resp.session_id) {
         loadedSessions.current.add(resp.session_id);
         setConversations(prev =>
-          prev.map(c => c.id === activeId
+          prev.map(c => c.id === convId
             ? { ...c, sessionId: resp.session_id, messagesLoaded: true }
             : c
           )
@@ -162,16 +191,23 @@ export function ChatModule({ userId, userEmail }) {
         data: a.data || {},
       }));
 
-      updateActive(c => ({
-        ...c,
-        messages: [
-          ...c.messages,
-          { role: "ai", text: resp.response, ...(actions.length > 0 ? { actions } : {}), ...(resp.tokens_used ? { tokens: resp.tokens_used } : {}) },
-        ],
-        updatedAt: Date.now(),
-      }));
+      update(c => {
+        const aiMsg = { role: "ai", text: resp.response, ...(actions.length > 0 ? { actions } : {}), ...(resp.tokens_used ? { tokens: resp.tokens_used } : {}) };
+        const isFirstReply = c.messages.length === 1;
+        let nextTitle = c.title;
+        if (isFirstReply) {
+          if (resp.suggested_title) {
+            nextTitle = resp.suggested_title;
+          } else {
+            const d = new Date();
+            const dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+            nextTitle = `${dateStr} · ${getIntentLabel(actions)}`;
+          }
+        }
+        return { ...c, title: nextTitle, messages: [...c.messages, { ...aiMsg, messageId: resp.message_id }], updatedAt: Date.now() };
+      });
     } catch (err) {
-      updateActive(c => ({
+      update(c => ({
         ...c,
         messages: [...c.messages, { role: "ai", text: `❌ Lỗi kết nối: ${err.message}` }],
       }));
@@ -184,8 +220,11 @@ export function ChatModule({ userId, userEmail }) {
 
   const handleActionAccept = async (msgIdx, actionIdx) => {
     const conv = conversations.find(c => c.id === activeId);
-    const action = conv?.messages[msgIdx]?.actions?.[actionIdx];
+    const msg = conv?.messages[msgIdx];
+    const action = msg?.actions?.[actionIdx];
     if (!action) return;
+
+    const messageId = msg.messageId;
 
     updateActive(c => ({
       ...c,
@@ -216,6 +255,7 @@ export function ChatModule({ userId, userEmail }) {
       } else if (action.type === "delete_event") {
         await API.deleteEvent(userId, action.data.event_id);
       }
+      if (messageId) API.updateActionStatus(userId, messageId, actionIdx, "accepted").catch(() => {});
     } catch (err) {
       // Roll back and show error
       updateActive(c => ({
@@ -232,6 +272,9 @@ export function ChatModule({ userId, userEmail }) {
   };
 
   const handleActionReject = (msgIdx, actionIdx) => {
+    const conv = conversations.find(c => c.id === activeId);
+    const messageId = conv?.messages[msgIdx]?.messageId;
+
     updateActive(c => {
       const msgs = c.messages.map((m, i) => {
         if (i !== msgIdx) return m;
@@ -242,6 +285,8 @@ export function ChatModule({ userId, userEmail }) {
       });
       return { ...c, messages: msgs };
     });
+
+    if (messageId) API.updateActionStatus(userId, messageId, actionIdx, "rejected").catch(() => {});
   };
 
   useEffect(() => {

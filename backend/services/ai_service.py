@@ -125,6 +125,28 @@ async def smart_event_operation(
         raise LLMProcessingError(f"Failed to parse event selection response: {str(e)}")
 
 
+async def generate_chat_title(message: str) -> str:
+    """Generate a short 3-5 word Vietnamese title summarising the user's first message."""
+    try:
+        response = openai_client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Tóm tắt tin nhắn sau thành tiêu đề ngắn 3-5 từ bằng tiếng Việt. "
+                        "Chỉ trả về tiêu đề, không dấu ngoặc kép, không dấu chấm cuối."
+                    ),
+                },
+                {"role": "user", "content": message[:500]},
+            ],
+            max_completion_tokens=15,
+        )
+        return response.choices[0].message.content.strip().strip('"\'.,')
+    except Exception:
+        return ""
+
+
 def _tool_call_to_intent(name: str, args: Dict[str, Any], tokens: int) -> Dict[str, Any]:
     base: Dict[str, Any] = {"confidence": 0.95, "_tokens": tokens}
 
@@ -189,6 +211,11 @@ async def parse_user_intent(
         "Expense = money spent/paid; Income = money received (salary, bonus, freelance). "
         "For receipt images → add_expense (extract store name, total, date). "
         "For calendar images/posters → create_calendar_event. "
+        "Calendar routing — follow strictly: "
+        "xóa/hủy/bỏ/cancel + event name → delete_calendar_event (NEVER read_calendar). "
+        "sửa/đổi/dời/cập nhật/reschedule + event name → update_calendar_event (NEVER read_calendar). "
+        "thêm/tạo/đặt lịch + details → create_calendar_event. "
+        "xem/kiểm tra/có gì/lịch hôm nay (no delete/update intent) → read_calendar. "
         "Respond in Vietnamese when no tool is called."
     )
 
@@ -278,7 +305,7 @@ async def parse_user_intent(
             "type": "function",
             "function": {
                 "name": "update_calendar_event",
-                "description": "Update/modify an existing calendar event.",
+                "description": "Update/modify/reschedule an existing calendar event. Triggered by: sửa, đổi, dời, cập nhật, thay đổi, reschedule + event name.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -303,7 +330,7 @@ async def parse_user_intent(
             "type": "function",
             "function": {
                 "name": "delete_calendar_event",
-                "description": "Delete/cancel an existing calendar event.",
+                "description": "Delete/cancel/remove an existing calendar event. Triggered by: xóa, hủy, bỏ, cancel, remove + event name. Do NOT use read_calendar first.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -317,7 +344,7 @@ async def parse_user_intent(
             "type": "function",
             "function": {
                 "name": "read_calendar",
-                "description": "View/list upcoming or past events. Use when user asks WHAT events they have (e.g. 'tuần tới có gì', 'hôm nay có lịch gì').",
+                "description": "View/list upcoming or past events. Use ONLY when user wants to SEE their schedule (e.g. 'tuần tới có gì', 'hôm nay có lịch gì', 'xem lịch'). Do NOT use when user wants to delete, cancel, update, or modify an event.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -395,8 +422,8 @@ async def parse_user_intent(
     if not msg.tool_calls:
         return {
             "intent": "chat",
-            "confidence": 1.0,
-            "data": {"response": msg.content or ""},
+            "confidence": 0.0,
+            "data": {"response": "Xin lỗi, tôi không hiểu ý định của bạn. Bạn có thể mô tả rõ hơn không?"},
             "_tokens": tokens,
         }
 

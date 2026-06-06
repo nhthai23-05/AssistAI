@@ -76,6 +76,22 @@ async def list_sessions(
     return [ChatSessionSummary(**s) for s in sessions]
 
 
+@router.patch("/messages/{message_id}/actions/{action_idx}")
+async def update_action_status(
+    message_id: int,
+    action_idx: int,
+    status: str = Query(..., description="New status: accepted or rejected"),
+    user_id: int = Query(..., description="User ID", gt=0),
+    db: Session = Depends(get_db),
+):
+    """Persist accepted/rejected status for an action card."""
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+
+    ChatService.update_action_status(db, message_id, action_idx, status)
+    return {"success": True}
+
+
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: int,

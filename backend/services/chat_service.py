@@ -7,7 +7,7 @@ from typing import Optional, Dict, List
 logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
-from services.ai_service import parse_user_intent, smart_event_operation
+from services.ai_service import parse_user_intent, smart_event_operation, generate_chat_title
 from models.message import Message, MessageRole
 from models.assistant_session import AssistantSession, SessionStatus
 from models.workspace import Workspace, WorkspaceStatus
@@ -87,6 +87,7 @@ class ChatService:
 
         try:
             # Get or create session
+            is_new_session = not bool(session_id)
             if session_id:
                 session = db.query(AssistantSession).filter(
                     AssistantSession.session_id == session_id,
@@ -249,9 +250,14 @@ class ChatService:
                             response_text = "Tôi sẽ cập nhật sự kiện này. Vui lòng xác nhận."
                             actions = [ChatActionData(action_type="update_event", action_status="pending", data=action_data)]
                         else:
+                            matched = next((e for e in events if e.get("id") == op_result["event_id"]), {})
+                            start = matched.get("start", {})
+                            end = matched.get("end", {})
                             action_data = {
                                 "event_id": op_result["event_id"],
                                 "event_summary": op_result.get("event_summary", ""),
+                                "start_datetime": start.get("dateTime", start.get("date", "")),
+                                "end_datetime": end.get("dateTime", end.get("date", "")),
                             }
                             response_text = "Tôi sẽ xóa sự kiện này. Vui lòng xác nhận."
                             actions = [ChatActionData(action_type="delete_event", action_status="pending", data=action_data)]
@@ -320,6 +326,17 @@ class ChatService:
             else:
                 response_text = data.get("response", "")
 
+            # Generate title for new chat/read sessions (no action-based label on frontend)
+            suggested_title: Optional[str] = None
+            if is_new_session and intent in ("chat", "read_calendar", "read_sheet"):
+                suggested_title = await generate_chat_title(message) or None
+                if suggested_title:
+                    try:
+                        session.title = suggested_title
+                        db.add(session)
+                    except Exception:
+                        pass
+
             # Persist user message + assistant response
             try:
                 user_msg = Message(
@@ -354,6 +371,7 @@ class ChatService:
                 "tokens_used": tokens_used,
                 "thinking_time_ms": thinking_ms,
                 "created_at": assistant_msg.created_at,
+                "suggested_title": suggested_title,
             }
 
         except (ValidationError, SessionNotFoundError, LLMProcessingError, DatabaseError):
@@ -394,6 +412,7 @@ class ChatService:
             result = []
             for msg in reversed(messages):
                 entry = {
+                    "message_id": msg.message_id,
                     "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
                     "content": msg.content,
                     "created_at": msg.created_at.isoformat() if msg.created_at else None,
@@ -446,6 +465,24 @@ class ChatService:
             return result
         except Exception as e:
             raise DatabaseError(f"Failed to list sessions: {str(e)}")
+
+    @staticmethod
+    def update_action_status(db: Session, message_id: int, action_idx: int, status: str) -> bool:
+        """Persist accepted/rejected status for a specific action within a message."""
+        try:
+            msg = db.query(Message).filter(Message.message_id == message_id).first()
+            if not msg or not msg.actions_json:
+                return False
+            actions = json.loads(msg.actions_json)
+            if action_idx < 0 or action_idx >= len(actions):
+                return False
+            actions[action_idx]["action_status"] = status
+            msg.actions_json = json.dumps(actions)
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise DatabaseError(f"Failed to update action status: {str(e)}")
 
     @staticmethod
     def delete_session(db: Session, user_id: int, session_id: int) -> bool:
