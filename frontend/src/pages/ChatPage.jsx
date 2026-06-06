@@ -12,6 +12,7 @@ export function ChatModule({ userId, userEmail }) {
   const [activeId, setActiveId] = useState(null);
   const [model, setModel] = useState("assist-pro");
   const [draft, setDraft] = useState("");
+  const [imageBase64, setImageBase64] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
   const loadedSessions = useRef(new Set());
@@ -50,6 +51,9 @@ export function ChatModule({ userId, userEmail }) {
         const msgs = (data.messages || []).map(m => ({
           role: m.role === "assistant" ? "ai" : "user",
           text: m.content,
+          ...(m.actions?.length ? {
+            actions: m.actions.map(a => ({ type: a.action_type, status: a.action_status, data: a.data || {} }))
+          } : {}),
         }));
         setConversations(prev =>
           prev.map(c => c.sessionId === conv.sessionId
@@ -117,24 +121,29 @@ export function ChatModule({ userId, userEmail }) {
 
   const handleSend = async (textOverride) => {
     const text = (textOverride ?? draft).trim();
-    if (!text || isTyping) return;
+    const img = imageBase64;
+    if ((!text && !img) || isTyping) return;
 
     const currentConv = conversations.find(c => c.id === activeId);
 
     updateActive(c => ({
       ...c,
       title: c.messages.length === 0
-        ? text.slice(0, 56) + (text.length > 56 ? "…" : "")
+        ? (text || "Ảnh hóa đơn").slice(0, 56) + ((text || "").length > 56 ? "…" : "")
         : c.title,
-      messages: [...c.messages, { role: "user", text }],
+      messages: [...c.messages, { role: "user", text, ...(img ? { image: img } : {}) }],
       updatedAt: Date.now(),
     }));
 
     setDraft("");
+    setImageBase64(null);
     setIsTyping(true);
 
+    // Strip data-URL prefix before sending to backend
+    const imgPayload = img ? img.split(",")[1] : null;
+
     try {
-      const resp = await API.sendMessage(userId, text, currentConv?.sessionId || null);
+      const resp = await API.sendMessage(userId, text, currentConv?.sessionId || null, imgPayload);
 
       // Persist session_id returned by the first message
       if (!currentConv?.sessionId && resp.session_id) {
@@ -157,7 +166,7 @@ export function ChatModule({ userId, userEmail }) {
         ...c,
         messages: [
           ...c.messages,
-          { role: "ai", text: resp.response, ...(actions.length > 0 ? { actions } : {}) },
+          { role: "ai", text: resp.response, ...(actions.length > 0 ? { actions } : {}), ...(resp.tokens_used ? { tokens: resp.tokens_used } : {}) },
         ],
         updatedAt: Date.now(),
       }));
@@ -194,6 +203,11 @@ export function ChatModule({ userId, userEmail }) {
         const items = Array.isArray(action.data) ? action.data : [action.data];
         for (const item of items) {
           await API.addExpense(userId, item);
+        }
+      } else if (action.type === "write_income_sheet") {
+        const items = Array.isArray(action.data) ? action.data : [action.data];
+        for (const item of items) {
+          await API.addIncome(userId, item);
         }
       } else if (action.type === "update_event") {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -299,6 +313,8 @@ export function ChatModule({ userId, userEmail }) {
           onStop={handleStop}
           isTyping={isTyping}
           modelLabel={modelObj.name}
+          image={imageBase64}
+          onImageChange={setImageBase64}
         />
       </main>
     </>

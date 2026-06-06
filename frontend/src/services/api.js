@@ -40,10 +40,14 @@ const API = {
     apiFetch(`/api/chat/sessions/${sessionId}?user_id=${userId}`, { method: "DELETE" }),
 
   // Chat messages
-  sendMessage: (userId, message, sessionId = null) =>
+  sendMessage: (userId, message, sessionId = null, imageBase64 = null) =>
     apiFetch(`/api/chat/message?user_id=${userId}`, {
       method: "POST",
-      body: { message, session_id: sessionId },
+      body: {
+        message,
+        session_id: sessionId,
+        ...(imageBase64 ? { image_base64: imageBase64 } : {}),
+      },
     }),
   getChatHistory: (userId, sessionId, limit = 50) =>
     apiFetch(`/api/chat/history?user_id=${userId}&session_id=${sessionId}&limit=${limit}`),
@@ -63,6 +67,8 @@ const API = {
     apiFetch(`/api/sheets/expenses?user_id=${userId}&limit=${limit}`),
   getCategories: (userId) =>
     apiFetch(`/api/sheets/categories?user_id=${userId}`),
+  getIncomeCategories: (userId) =>
+    apiFetch(`/api/sheets/income-categories?user_id=${userId}`),
   getSummary: (userId) =>
     apiFetch(`/api/sheets/summary?user_id=${userId}`),
   addExpense: (userId, expense) =>
@@ -79,6 +85,16 @@ const API = {
     apiFetch(`/api/sheets/categories?user_id=${userId}`, { method: "POST", body: data }),
   deleteCategory: (userId, data) =>
     apiFetch(`/api/sheets/categories?user_id=${userId}`, { method: "DELETE", body: data }),
+
+  // Income transactions (Giao dịch sheet, columns G:J)
+  getIncomeTransactions: (userId, limit = 100) =>
+    apiFetch(`/api/sheets/income-transactions?user_id=${userId}&limit=${limit}`),
+  addIncome: (userId, income) =>
+    apiFetch(`/api/sheets/income?user_id=${userId}`, { method: "POST", body: income }),
+  updateIncome: (userId, rowNumber, income) =>
+    apiFetch(`/api/sheets/income/${rowNumber}?user_id=${userId}`, { method: "PUT", body: income }),
+  deleteIncome: (userId, rowNumber) =>
+    apiFetch(`/api/sheets/income/${rowNumber}?user_id=${userId}`, { method: "DELETE" }),
 };
 
 export default API;

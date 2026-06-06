@@ -32,6 +32,7 @@ class SummaryDataResponse(BaseModel):
     closing_balance: float = Field(..., description="Số dư cuối kỳ (from D17)")
     total_expenses: float = Field(..., description="Tổng chi phí thực tế")
     total_income: float = Field(..., description="Tổng thu nhập thực tế")
+    sheet_url: Optional[str] = Field(None, description="Google Sheets URL")
 
 
 class UpdateBalanceRequest(BaseModel):

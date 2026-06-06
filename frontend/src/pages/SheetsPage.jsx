@@ -3,42 +3,96 @@ import I from '../components/icons';
 import API from '../services/api';
 import { EXPENSE_CATEGORIES, fmtVND, fmtDateVN } from '../data/expenses';
 
-function SheetsSidebar({ activeFilter, onFilter, categories, expenses, onAddOpen }) {
-  const counts = useMemo(() => {
+const INCOME_COLOR = "#16a34a";
+
+function TabToggle({ activeTab, onChange }) {
+  const btn = (tab, icon, label) => (
+    <button
+      onClick={() => onChange(tab)}
+      style={{
+        padding: "7px 20px",
+        borderRadius: 8,
+        border: "none",
+        cursor: "pointer",
+        fontWeight: 600,
+        fontSize: 13,
+        transition: "all .15s",
+        background: activeTab === tab
+          ? (tab === "thu" ? "#16a34a33" : "var(--ink-5)")
+          : "transparent",
+        color: activeTab === tab
+          ? (tab === "thu" ? INCOME_COLOR : "var(--text-0)")
+          : "var(--text-3)",
+        display: "flex", alignItems: "center", gap: 5,
+      }}
+    >
+      <span style={{ fontSize: 12 }}>{icon}</span> {label}
+    </button>
+  );
+  return (
+    <div style={{
+      display: "flex", background: "var(--ink-3)", borderRadius: 10,
+      padding: 3, gap: 2, border: "1px solid var(--ink-5)",
+    }}>
+      {btn("chi", "↘", "Chi tiêu")}
+      {btn("thu", "↗", "Thu nhập")}
+    </div>
+  );
+}
+
+function SheetsSidebar({ activeTab, onTabChange, activeFilter, onFilter, categories, incomeCategories, expenseItems, incomeItems, onAddOpen }) {
+  const expenseCounts = useMemo(() => {
     const m = {};
-    expenses.forEach(e => { m[e.category] = (m[e.category] || 0) + 1; });
+    expenseItems.forEach(e => { m[e.category] = (m[e.category] || 0) + 1; });
     return m;
-  }, [expenses]);
+  }, [expenseItems]);
+
+  const incomeCounts = useMemo(() => {
+    const m = {};
+    incomeItems.forEach(e => { m[e.category] = (m[e.category] || 0) + 1; });
+    return m;
+  }, [incomeItems]);
+
+  const isIncome = activeTab === "thu";
+  const showCounts = isIncome ? incomeCounts : expenseCounts;
+  const showItems = isIncome ? incomeItems : expenseItems;
+  const showCategories = isIncome
+    ? incomeCategories.map(n => ({ name: n, color: INCOME_COLOR }))
+    : categories;
 
   return (
     <aside className="sidebar">
       <div className="sb-head">
         <div className="brand">
-          <div className="brand-mark"><I.Wallet style={{ width:14, height:14, stroke:"#fff" }}/></div>
+          <div className="brand-mark"><I.Wallet style={{ width: 14, height: 14, stroke: "#fff" }} /></div>
           <div className="brand-name"><b>Thu chi</b></div>
         </div>
       </div>
 
+      <div style={{ marginBottom: 12 }}>
+        <TabToggle activeTab={activeTab} onChange={onTabChange} />
+      </div>
+
       <button className="new-chat" onClick={onAddOpen} style={{ marginBottom: 14 }}>
-        <span className="plus"><I.Plus/></span>
-        Thêm giao dịch
+        <span className="plus"><I.Plus /></span>
+        {isIncome ? "Thêm thu nhập" : "Thêm chi tiêu"}
         <span className="kbd">⌘E</span>
       </button>
 
       <div className="sb-section">
-        <div className="sb-section-title">Danh mục</div>
+        <div className="sb-section-title">{isIncome ? "Danh mục thu" : "Danh mục chi"}</div>
       </div>
       <div className="category-filter">
         <div
           className={"cf-item" + (activeFilter === "all" ? " active" : "")}
           onClick={() => onFilter("all")}
         >
-          <span className="d" style={{ background:"var(--grad-brand)"}}/>
-          Tất cả giao dịch
-          <span className="count">{expenses.length}</span>
+          <span className="d" style={{ background: isIncome ? INCOME_COLOR : "var(--grad-brand)" }} />
+          {isIncome ? "Tất cả thu nhập" : "Tất cả chi tiêu"}
+          <span className="count">{showItems.length}</span>
         </div>
-        {categories.map(c => {
-          const ct = counts[c.name] || 0;
+        {showCategories.map(c => {
+          const ct = showCounts[c.name] || 0;
           if (ct === 0) return null;
           return (
             <div
@@ -46,7 +100,7 @@ function SheetsSidebar({ activeFilter, onFilter, categories, expenses, onAddOpen
               className={"cf-item" + (activeFilter === c.name ? " active" : "")}
               onClick={() => onFilter(c.name)}
             >
-              <span className="d" style={{ background: c.color }}/>
+              <span className="d" style={{ background: c.color }} />
               {c.name}
               <span className="count">{ct}</span>
             </div>
@@ -70,31 +124,68 @@ function SummaryCards({ totalActual, totalPlanned, income, openingBalance, onEdi
         <div className="lbl">Số dư cuối kỳ</div>
         <div className="val">{fmtVND(closingBalance)}</div>
         <div className="sub">
-          <span className="delta up"><I.Up/> +{savingsPct}%</span>
+          <span className="delta up"><I.Up /> +{savingsPct}%</span>
           so với đầu kỳ
         </div>
       </div>
       <div className="sh-card" style={{ cursor: "pointer" }} onClick={onEditBalance}>
-        <div className="lbl" style={{ display:"flex", alignItems:"center", gap:6 }}>
+        <div className="lbl" style={{ display: "flex", alignItems: "center", gap: 6 }}>
           Đã chi tháng này
-          <span style={{ fontSize:10, color:"var(--text-3)", fontWeight:400 }}>✏️ Sửa số dư</span>
+          <span style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 400 }}>✏️ Sửa số dư</span>
         </div>
         <div className="val">{fmtVND(totalActual)}</div>
         <div className="sub">trên {fmtVND(totalPlanned)} dự kiến</div>
-        <div className="balance-bar"><div className="fill" style={{ width: usedPct + "%"}}/></div>
+        <div className="balance-bar"><div className="fill" style={{ width: usedPct + "%" }} /></div>
       </div>
       <div className="sh-card">
         <div className="lbl">Thu nhập thực tế</div>
-        <div className="val" style={{ color: "var(--success)"}}>{fmtVND(income)}</div>
+        <div className="val" style={{ color: "var(--success)" }}>{fmtVND(income)}</div>
         <div className="sub">
-          <span className="delta up"><I.Up/> +{Math.round(((income-8000000)/8000000)*100)}%</span>
+          <span className="delta up"><I.Up /> +{Math.round(((income - 8000000) / 8000000) * 100)}%</span>
           trên dự kiến
         </div>
       </div>
       <div className="sh-card">
         <div className="lbl">Tiết kiệm tháng này</div>
-        <div className="val" style={{ color: remaining >= 0 ? "var(--success)" : "var(--danger)"}}>{fmtVND(savingsThisMonth)}</div>
+        <div className="val" style={{ color: remaining >= 0 ? "var(--success)" : "var(--danger)" }}>{fmtVND(savingsThisMonth)}</div>
         <div className="sub">Số dư đầu kỳ: {fmtVND(openingBalance)}</div>
+      </div>
+    </div>
+  );
+}
+
+function IncomeSummaryCards({ total, items, openingBalance }) {
+  const byCat = useMemo(() => {
+    const m = {};
+    items.forEach(e => { m[e.category] = (m[e.category] || 0) + e.amount; });
+    return m;
+  }, [items]);
+
+  const topCat = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0];
+
+  return (
+    <div className="sh-summary">
+      <div className="sh-card featured" style={{ borderColor: "#16a34a44" }}>
+        <div className="lbl">Tổng thu nhập</div>
+        <div className="val" style={{ color: "var(--success)" }}>{fmtVND(total)}</div>
+        <div className="sub">{items.length} giao dịch ghi nhận</div>
+      </div>
+      <div className="sh-card">
+        <div className="lbl">Số dư đầu kỳ</div>
+        <div className="val">{fmtVND(openingBalance)}</div>
+        <div className="sub">Tháng {new Date().getMonth() + 1} / {new Date().getFullYear()}</div>
+      </div>
+      <div className="sh-card">
+        <div className="lbl">Danh mục nhiều nhất</div>
+        <div className="val" style={{ fontSize: 15, color: topCat ? "var(--success)" : "var(--text-3)" }}>
+          {topCat ? topCat[0] : "—"}
+        </div>
+        <div className="sub">{topCat ? fmtVND(topCat[1]) : "Chưa có giao dịch"}</div>
+      </div>
+      <div className="sh-card">
+        <div className="lbl">Danh mục có GD</div>
+        <div className="val">{Object.keys(byCat).length}</div>
+        <div className="sub">trong kỳ này</div>
       </div>
     </div>
   );
@@ -107,10 +198,10 @@ function CategoryBreakdown({ categories, expenses, onEditBudget }) {
     return m;
   }, [expenses]);
 
-  const totalActual = useMemo(() => Object.values(totals).reduce((s,v) => s+v, 0), [totals]);
+  const totalActual = useMemo(() => Object.values(totals).reduce((s, v) => s + v, 0), [totals]);
   const rows = categories
     .map(c => ({ ...c, actual: totals[c.name] || 0 }))
-    .sort((a,b) => b.actual - a.actual);
+    .sort((a, b) => b.actual - a.actual);
 
   return (
     <div className="sh-panel">
@@ -127,7 +218,7 @@ function CategoryBreakdown({ categories, expenses, onEditBudget }) {
           const pctOfPlan = r.planned > 0 ? Math.round((r.actual / r.planned) * 100) : null;
           return (
             <div key={r.name} className="cat-row">
-              <div className="cat-dot" style={{ background: r.color }}/>
+              <div className="cat-dot" style={{ background: r.color }} />
               <div className="cat-info">
                 <div className="name">
                   <span>{r.name}</span>
@@ -137,20 +228,20 @@ function CategoryBreakdown({ categories, expenses, onEditBudget }) {
                   </span>
                 </div>
                 <div className="cat-bar">
-                  <div className="fill" style={{ width: actualPct + "%", background: overBudget ? "var(--danger)" : r.color}}/>
+                  <div className="fill" style={{ width: actualPct + "%", background: overBudget ? "var(--danger)" : r.color }} />
                   {r.planned > 0 && r.actual !== r.planned && (
-                    <div className="planned-marker" style={{ left: plannedPct + "%"}}/>
+                    <div className="planned-marker" style={{ left: plannedPct + "%" }} />
                   )}
                 </div>
               </div>
-              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div className={"cat-pct" + (overBudget ? " over" : "")}>
                   {pctOfPlan != null ? pctOfPlan + "%" : "—"}
                 </div>
                 {onEditBudget && (
                   <button
                     className="icon-btn"
-                    style={{ fontSize:11, padding:"2px 6px", opacity:0.6 }}
+                    style={{ fontSize: 11, padding: "2px 6px", opacity: 0.6 }}
                     onClick={() => onEditBudget(r)}
                     title="Sửa ngân sách"
                   >✏️</button>
@@ -159,6 +250,61 @@ function CategoryBreakdown({ categories, expenses, onEditBudget }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function IncomeCategoryBreakdown({ incomeCategories, incomeItems, onEditBudget }) {
+  const totals = useMemo(() => {
+    const m = {};
+    incomeItems.forEach(e => { m[e.category] = (m[e.category] || 0) + e.amount; });
+    return m;
+  }, [incomeItems]);
+
+  const totalIncome = Object.values(totals).reduce((s, v) => s + v, 0);
+
+  return (
+    <div className="sh-panel" style={{ flex: 1 }}>
+      <div className="sh-panel-head">
+        <div className="h">Thu theo danh mục</div>
+        <div className="sub">{fmtVND(totalIncome)} · {incomeCategories.length} danh mục</div>
+      </div>
+      <div className="cat-list">
+        {incomeCategories.map(name => {
+          const actual = totals[name] || 0;
+          const pct = totalIncome > 0 ? (actual / totalIncome) * 100 : 0;
+          return (
+            <div key={name} className="cat-row">
+              <div className="cat-dot" style={{ background: INCOME_COLOR }} />
+              <div className="cat-info">
+                <div className="name">
+                  <span>{name}</span>
+                  <b style={{ color: actual > 0 ? "var(--success)" : "var(--text-3)" }}>{fmtVND(actual)}</b>
+                </div>
+                <div className="cat-bar">
+                  <div className="fill" style={{ width: pct + "%", background: INCOME_COLOR }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="cat-pct">{totalIncome > 0 ? Math.round(pct) + "%" : "—"}</div>
+                {onEditBudget && (
+                  <button
+                    className="icon-btn"
+                    style={{ fontSize: 11, padding: "2px 6px", opacity: 0.6 }}
+                    onClick={() => onEditBudget({ name, color: INCOME_COLOR, planned: 0 })}
+                    title="Sửa ngân sách"
+                  >✏️</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {incomeCategories.length === 0 && (
+          <div style={{ textAlign: "center", padding: "24px", color: "var(--text-3)", fontSize: 13 }}>
+            Chưa có danh mục thu nhập. Nhấn "Danh mục Thu" để thêm.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -179,11 +325,11 @@ function DonutBudget({ totalActual, totalPlanned }) {
       </div>
       <div className="donut-wrap">
         <svg className="donut-svg" width="180" height="180" viewBox="0 0 160 160">
-          <circle cx="80" cy="80" r={r} fill="none" stroke="var(--ink-4)" strokeWidth="14"/>
+          <circle cx="80" cy="80" r={r} fill="none" stroke="var(--ink-4)" strokeWidth="14" />
           <defs>
             <linearGradient id="donut-grad" x1="0" x2="1" y1="0" y2="1">
-              <stop offset="0%" stopColor="#a78bfa"/>
-              <stop offset="100%" stopColor="#4f46e5"/>
+              <stop offset="0%" stopColor="#a78bfa" />
+              <stop offset="100%" stopColor="#4f46e5" />
             </linearGradient>
           </defs>
           <circle
@@ -195,12 +341,12 @@ function DonutBudget({ totalActual, totalPlanned }) {
           />
         </svg>
         <div className="donut-center">
-          <div className="num">{Math.round(pct*100)}%</div>
+          <div className="num">{Math.round(pct * 100)}%</div>
           <div className="lbl">đã dùng</div>
         </div>
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6, marginTop:4 }}>
-          <div style={{ fontSize: 12, color: "var(--text-2)"}}>Còn lại</div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: overspent ? "var(--danger)" : "var(--text-0)", letterSpacing:"-0.01em"}}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: "var(--text-2)" }}>Còn lại</div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: overspent ? "var(--danger)" : "var(--text-0)", letterSpacing: "-0.01em" }}>
             {fmtVND(remaining)}
           </div>
         </div>
@@ -209,37 +355,49 @@ function DonutBudget({ totalActual, totalPlanned }) {
   );
 }
 
-function AddExpenseForm({ categories, onAdd, onClose }) {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0,10));
+function AddTransactionForm({ categories, isIncome, onAdd, onClose }) {
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState(categories[0]?.name || "");
+  const [category, setCategory] = useState(() => {
+    const first = categories[0];
+    return typeof first === "string" ? first : first?.name || "";
+  });
+
+  useEffect(() => {
+    const first = categories[0];
+    setCategory(typeof first === "string" ? first : first?.name || "");
+  }, [isIncome]);
 
   const handle = (e) => {
     e.preventDefault();
-    const n = parseInt(String(amount).replace(/[^\d]/g,""), 10);
+    const n = parseInt(String(amount).replace(/[^\d]/g, ""), 10);
     if (!n || !description) return;
-    onAdd({ date, amount: n, description, category });
-    setAmount(""); setDescription("");
+    const catName = typeof category === "string" ? category : category?.name || "";
+    onAdd({ date, amount: n, description, category: catName });
+    setAmount("");
+    setDescription("");
     onClose && onClose();
   };
 
   const fmtInput = (v) => {
-    const n = String(v).replace(/[^\d]/g,"");
-    return n ? parseInt(n,10).toLocaleString("vi-VN") : "";
+    const n = String(v).replace(/[^\d]/g, "");
+    return n ? parseInt(n, 10).toLocaleString("vi-VN") : "";
   };
 
   return (
-    <div className="sh-panel" style={{ marginBottom: 24 }}>
+    <div className="sh-panel" style={{ marginBottom: 24, borderColor: isIncome ? "#16a34a44" : undefined }}>
       <div className="sh-panel-head">
-        <div className="h">Thêm giao dịch mới</div>
-        <button className="icon-btn" onClick={onClose}><I.X/></button>
+        <div className="h" style={{ color: isIncome ? "var(--success)" : undefined }}>
+          {isIncome ? "↗ Thêm thu nhập" : "↘ Thêm chi tiêu"}
+        </div>
+        <button className="icon-btn" onClick={onClose}><I.X /></button>
       </div>
       <form className="expense-form" onSubmit={handle}>
         <div className="row-2">
           <div>
             <label>Ngày</label>
-            <input className="input" type="date" value={date} onChange={e => setDate(e.target.value)}/>
+            <input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
           <div>
             <label>Số tiền (VND)</label>
@@ -258,23 +416,35 @@ function AddExpenseForm({ categories, onAdd, onClose }) {
         </div>
         <div>
           <label>Mô tả</label>
-          <input className="input" placeholder="VD: Cơm trưa với team..." value={description} onChange={e => setDescription(e.target.value)}/>
+          <input
+            className="input"
+            placeholder={isIncome ? "VD: Lương tháng 6..." : "VD: Cơm trưa với team..."}
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+          />
         </div>
         <div>
           <label>Danh mục</label>
           <select value={category} onChange={e => setCategory(e.target.value)}>
-            {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+            {categories.map(c => {
+              const name = typeof c === "string" ? c : c.name;
+              return <option key={name} value={name}>{name}</option>;
+            })}
           </select>
         </div>
-        <button type="submit" className="submit">
-          Lưu vào Google Sheets
+        <button
+          type="submit"
+          className="submit"
+          style={isIncome ? { background: "linear-gradient(135deg, #4ade80, #16a34a)" } : undefined}
+        >
+          {isIncome ? "↗ Lưu thu nhập" : "Lưu vào Google Sheets"}
         </button>
       </form>
     </div>
   );
 }
 
-function EditExpenseModal({ expense, categories, onSave, onClose }) {
+function EditExpenseModal({ expense, categories, isIncome, onSave, onClose }) {
   const [date, setDate] = useState(expense.date);
   const [amount, setAmount] = useState(String(expense.amount));
   const [description, setDescription] = useState(expense.description);
@@ -282,13 +452,13 @@ function EditExpenseModal({ expense, categories, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
 
   const fmtInput = (v) => {
-    const n = String(v).replace(/[^\d]/g,"");
-    return n ? parseInt(n,10).toLocaleString("vi-VN") : "";
+    const n = String(v).replace(/[^\d]/g, "");
+    return n ? parseInt(n, 10).toLocaleString("vi-VN") : "";
   };
 
   const handle = async (e) => {
     e.preventDefault();
-    const n = parseInt(String(amount).replace(/[^\d]/g,""), 10);
+    const n = parseInt(String(amount).replace(/[^\d]/g, ""), 10);
     if (!n || !description) return;
     setSaving(true);
     await onSave(expense.row_number, { date, amount: n, description, category });
@@ -297,32 +467,31 @@ function EditExpenseModal({ expense, categories, onSave, onClose }) {
 
   return (
     <div style={{
-      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:1000,
-      display:"flex", alignItems:"center", justifyContent:"center"
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
     }}>
       <div style={{
-        background:"var(--surface-1)", borderRadius:12, padding:24,
-        width:420, boxShadow:"0 8px 32px rgba(0,0,0,0.3)"
+        background: "var(--ink-3)", borderRadius: 12, padding: 24, border: "1px solid var(--ink-5)",
+        width: 420, boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
       }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-          <div style={{ fontWeight:600, fontSize:15 }}>Sửa giao dịch (dòng {expense.row_number})</div>
-          <button className="icon-btn" onClick={onClose}><I.X/></button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>
+            {isIncome ? "Sửa thu nhập" : "Sửa chi tiêu"} (dòng {expense.row_number})
+          </div>
+          <button className="icon-btn" onClick={onClose}><I.X /></button>
         </div>
         <form className="expense-form" onSubmit={handle}>
           <div className="row-2">
             <div>
               <label>Ngày</label>
-              <input className="input" type="date" value={date} onChange={e => setDate(e.target.value)}/>
+              <input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} />
             </div>
             <div>
               <label>Số tiền (VND)</label>
               <div className="amount-input">
                 <input
-                  className="input"
-                  type="text"
-                  inputMode="numeric"
-                  value={fmtInput(amount)}
-                  onChange={e => setAmount(e.target.value)}
+                  className="input" type="text" inputMode="numeric"
+                  value={fmtInput(amount)} onChange={e => setAmount(e.target.value)}
                 />
                 <span className="suffix">₫</span>
               </div>
@@ -330,17 +499,20 @@ function EditExpenseModal({ expense, categories, onSave, onClose }) {
           </div>
           <div>
             <label>Mô tả</label>
-            <input className="input" value={description} onChange={e => setDescription(e.target.value)}/>
+            <input className="input" value={description} onChange={e => setDescription(e.target.value)} />
           </div>
           <div>
             <label>Danh mục</label>
             <select value={category} onChange={e => setCategory(e.target.value)}>
-              {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+              {categories.map(c => {
+                const name = typeof c === "string" ? c : c.name;
+                return <option key={name} value={name}>{name}</option>;
+              })}
             </select>
           </div>
-          <div style={{ display:"flex", gap:8, marginTop:4 }}>
-            <button type="button" className="submit" style={{ background:"var(--ink-3)", flex:1 }} onClick={onClose}>Hủy</button>
-            <button type="submit" className="submit" style={{ flex:2 }} disabled={saving}>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button type="button" className="submit" style={{ background: "var(--ink-3)", flex: 1 }} onClick={onClose}>Hủy</button>
+            <button type="submit" className="submit" style={{ flex: 2 }} disabled={saving}>
               {saving ? "Đang lưu..." : "Lưu thay đổi"}
             </button>
           </div>
@@ -356,11 +528,10 @@ function EditBalanceModal({ summary, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
 
   const fmtInput = (v) => {
-    const n = String(v).replace(/[^\d]/g,"");
-    return n ? parseInt(n,10).toLocaleString("vi-VN") : "";
+    const n = String(v).replace(/[^\d]/g, "");
+    return n ? parseInt(n, 10).toLocaleString("vi-VN") : "";
   };
-
-  const parseNum = (v) => parseInt(String(v).replace(/[^\d]/g,""), 10) || 0;
+  const parseNum = (v) => parseInt(String(v).replace(/[^\d]/g, ""), 10) || 0;
 
   const handle = async (e) => {
     e.preventDefault();
@@ -371,47 +542,35 @@ function EditBalanceModal({ summary, onSave, onClose }) {
 
   return (
     <div style={{
-      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:1000,
-      display:"flex", alignItems:"center", justifyContent:"center"
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
     }}>
       <div style={{
-        background:"var(--surface-1)", borderRadius:12, padding:24,
-        width:380, boxShadow:"0 8px 32px rgba(0,0,0,0.3)"
+        background: "var(--ink-3)", borderRadius: 12, padding: 24, border: "1px solid var(--ink-5)",
+        width: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
       }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-          <div style={{ fontWeight:600, fontSize:15 }}>Cập nhật số dư</div>
-          <button className="icon-btn" onClick={onClose}><I.X/></button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>Cập nhật số dư</div>
+          <button className="icon-btn" onClick={onClose}><I.X /></button>
         </div>
         <form className="expense-form" onSubmit={handle}>
           <div>
             <label>Số dư đầu kỳ (L8)</label>
             <div className="amount-input">
-              <input
-                className="input"
-                type="text"
-                inputMode="numeric"
-                value={fmtInput(opening)}
-                onChange={e => setOpening(e.target.value)}
-              />
+              <input className="input" type="text" inputMode="numeric" value={fmtInput(opening)} onChange={e => setOpening(e.target.value)} />
               <span className="suffix">₫</span>
             </div>
           </div>
           <div>
             <label>Số dư cuối kỳ (D17)</label>
             <div className="amount-input">
-              <input
-                className="input"
-                type="text"
-                inputMode="numeric"
-                value={fmtInput(closing)}
-                onChange={e => setClosing(e.target.value)}
-              />
+              <input className="input" type="text" inputMode="numeric" value={fmtInput(closing)} onChange={e => setClosing(e.target.value)} />
               <span className="suffix">₫</span>
             </div>
           </div>
-          <div style={{ display:"flex", gap:8, marginTop:4 }}>
-            <button type="button" className="submit" style={{ background:"var(--ink-3)", flex:1 }} onClick={onClose}>Hủy</button>
-            <button type="submit" className="submit" style={{ flex:2 }} disabled={saving}>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button type="button" className="submit" style={{ background: "var(--ink-3)", flex: 1 }} onClick={onClose}>Hủy</button>
+            <button type="submit" className="submit" style={{ flex: 2 }} disabled={saving}>
               {saving ? "Đang lưu..." : "Lưu số dư"}
             </button>
           </div>
@@ -421,19 +580,18 @@ function EditBalanceModal({ summary, onSave, onClose }) {
   );
 }
 
-function EditBudgetModal({ category, onSave, onClose }) {
+function EditBudgetModal({ category, isIncome, onSave, onClose }) {
   const [amount, setAmount] = useState(String(category.planned || 0));
-  const [isIncome, setIsIncome] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fmtInput = (v) => {
-    const n = String(v).replace(/[^\d]/g,"");
-    return n ? parseInt(n,10).toLocaleString("vi-VN") : "";
+    const n = String(v).replace(/[^\d]/g, "");
+    return n ? parseInt(n, 10).toLocaleString("vi-VN") : "";
   };
 
   const handle = async (e) => {
     e.preventDefault();
-    const n = parseInt(String(amount).replace(/[^\d]/g,""), 10);
+    const n = parseInt(String(amount).replace(/[^\d]/g, ""), 10);
     if (!n) return;
     setSaving(true);
     await onSave({ category: category.name, budget_amount: n, is_income: isIncome });
@@ -442,38 +600,30 @@ function EditBudgetModal({ category, onSave, onClose }) {
 
   return (
     <div style={{
-      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:1000,
-      display:"flex", alignItems:"center", justifyContent:"center"
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
     }}>
       <div style={{
-        background:"var(--surface-1)", borderRadius:12, padding:24,
-        width:360, boxShadow:"0 8px 32px rgba(0,0,0,0.3)"
+        background: "var(--ink-3)", borderRadius: 12, padding: 24, border: "1px solid var(--ink-5)",
+        width: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
       }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-          <div style={{ fontWeight:600, fontSize:15 }}>Ngân sách: {category.name}</div>
-          <button className="icon-btn" onClick={onClose}><I.X/></button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>
+            Ngân sách {isIncome ? "thu" : "chi"}: {category.name}
+          </div>
+          <button className="icon-btn" onClick={onClose}><I.X /></button>
         </div>
         <form className="expense-form" onSubmit={handle}>
           <div>
             <label>Ngân sách dự kiến (VND)</label>
             <div className="amount-input">
-              <input
-                className="input"
-                type="text"
-                inputMode="numeric"
-                value={fmtInput(amount)}
-                onChange={e => setAmount(e.target.value)}
-              />
+              <input className="input" type="text" inputMode="numeric" value={fmtInput(amount)} onChange={e => setAmount(e.target.value)} />
               <span className="suffix">₫</span>
             </div>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <input type="checkbox" id="isIncome" checked={isIncome} onChange={e => setIsIncome(e.target.checked)}/>
-            <label htmlFor="isIncome" style={{ cursor:"pointer", marginBottom:0 }}>Đây là danh mục thu nhập</label>
-          </div>
-          <div style={{ display:"flex", gap:8, marginTop:4 }}>
-            <button type="button" className="submit" style={{ background:"var(--ink-3)", flex:1 }} onClick={onClose}>Hủy</button>
-            <button type="submit" className="submit" style={{ flex:2 }} disabled={saving}>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button type="button" className="submit" style={{ background: "var(--ink-3)", flex: 1 }} onClick={onClose}>Hủy</button>
+            <button type="submit" className="submit" style={{ flex: 2 }} disabled={saving}>
               {saving ? "Đang lưu..." : "Cập nhật"}
             </button>
           </div>
@@ -483,9 +633,8 @@ function EditBudgetModal({ category, onSave, onClose }) {
   );
 }
 
-function ManageCategoriesModal({ categories, userId, onClose, onRefresh }) {
+function ManageCategoriesModal({ categories, userId, isIncome, onClose, onRefresh }) {
   const [newCat, setNewCat] = useState("");
-  const [isIncome, setIsIncome] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(null);
 
@@ -508,7 +657,7 @@ function ManageCategoriesModal({ categories, userId, onClose, onRefresh }) {
     if (!confirm(`Xóa danh mục "${cat.name}"?`)) return;
     setDeleting(cat.name);
     try {
-      await API.deleteCategory(userId, { category: cat.name, is_income: false });
+      await API.deleteCategory(userId, { category: cat.name, is_income: isIncome });
       onRefresh();
     } catch (err) {
       alert("Lỗi: " + err.message);
@@ -519,68 +668,78 @@ function ManageCategoriesModal({ categories, userId, onClose, onRefresh }) {
 
   return (
     <div style={{
-      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:1000,
-      display:"flex", alignItems:"center", justifyContent:"center"
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
     }}>
       <div style={{
-        background:"var(--surface-1)", borderRadius:12, padding:24,
-        width:420, maxHeight:"80vh", overflowY:"auto",
-        boxShadow:"0 8px 32px rgba(0,0,0,0.3)"
+        background: "var(--ink-3)", borderRadius: 12, padding: 24, border: "1px solid var(--ink-5)",
+        width: 420, maxHeight: "80vh", overflowY: "auto",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
       }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-          <div style={{ fontWeight:600, fontSize:15 }}>Quản lý danh mục</div>
-          <button className="icon-btn" onClick={onClose}><I.X/></button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>
+            Danh mục {isIncome ? "Thu nhập" : "Chi tiêu"}
+          </div>
+          <button className="icon-btn" onClick={onClose}><I.X /></button>
         </div>
 
-        <form className="expense-form" onSubmit={handleAdd} style={{ marginBottom:20 }}>
+        <form className="expense-form" onSubmit={handleAdd} style={{ marginBottom: 20 }}>
           <div>
             <label>Tên danh mục mới</label>
-            <input className="input" value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="VD: Du lịch"/>
+            <input
+              className="input"
+              value={newCat}
+              onChange={e => setNewCat(e.target.value)}
+              placeholder={isIncome ? "VD: Lương, Freelance..." : "VD: Du lịch, Ăn uống..."}
+            />
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <input type="checkbox" id="catIsIncome" checked={isIncome} onChange={e => setIsIncome(e.target.checked)}/>
-            <label htmlFor="catIsIncome" style={{ cursor:"pointer", marginBottom:0 }}>Thu nhập</label>
-          </div>
-          <button type="submit" className="submit" disabled={saving}>
-            {saving ? "Đang thêm..." : "+ Thêm danh mục"}
+          <button type="submit" className="submit" disabled={saving}
+            style={isIncome ? { background: "linear-gradient(135deg, #4ade80, #16a34a)" } : undefined}
+          >
+            {saving ? "Đang thêm..." : `+ Thêm danh mục ${isIncome ? "thu" : "chi"}`}
           </button>
         </form>
 
-        <div style={{ borderTop:"1px solid var(--border)", paddingTop:16 }}>
-          <div style={{ fontSize:12, color:"var(--text-3)", marginBottom:10 }}>Danh sách hiện tại</div>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+          <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10 }}>Danh sách hiện tại</div>
           {categories.map(c => (
             <div key={c.name} style={{
-              display:"flex", alignItems:"center", gap:8, padding:"6px 0",
-              borderBottom:"1px solid var(--ink-4)"
+              display: "flex", alignItems: "center", gap: 8, padding: "6px 0",
+              borderBottom: "1px solid var(--ink-4)"
             }}>
-              <span style={{ background: c.color, width:8, height:8, borderRadius:"50%", flexShrink:0 }}/>
-              <span style={{ flex:1, fontSize:13 }}>{c.name}</span>
+              <span style={{ background: c.color, width: 8, height: 8, borderRadius: "50%", flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 13 }}>{c.name}</span>
               <button
                 className="icon-btn"
-                style={{ fontSize:11, color:"var(--danger)", opacity: deleting===c.name ? 0.5 : 1 }}
+                style={{ fontSize: 11, color: "var(--danger)", opacity: deleting === c.name ? 0.5 : 1 }}
                 onClick={() => handleDelete(c)}
-                disabled={deleting===c.name}
+                disabled={deleting === c.name}
               >Xóa</button>
             </div>
           ))}
+          {categories.length === 0 && (
+            <div style={{ textAlign: "center", padding: "16px", color: "var(--text-3)", fontSize: 13 }}>
+              Chưa có danh mục nào
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function TransactionsTable({ expenses, categories, filter, onEdit, onDelete }) {
+function TransactionsTable({ expenses, categories, filter, isIncome, onEdit, onDelete }) {
   const filtered = useMemo(() => {
     const list = filter === "all" ? expenses : expenses.filter(e => e.category === filter);
-    return [...list].sort((a,b) => b.date.localeCompare(a.date));
+    return [...list].sort((a, b) => b.date.localeCompare(a.date));
   }, [expenses, filter]);
 
-  const catMap = useMemo(() => Object.fromEntries(categories.map(c => [c.name, c.color])), [categories]);
+  const catMap = useMemo(() => Object.fromEntries(categories.map(c => [c.name || c, c.color || (isIncome ? INCOME_COLOR : "#a78bfa")])), [categories]);
 
   return (
     <div className="sh-panel">
       <div className="sh-panel-head">
-        <div className="h">Giao dịch gần đây</div>
+        <div className="h">{isIncome ? "Thu nhập gần đây" : "Giao dịch gần đây"}</div>
         <div className="sub">{filtered.length} giao dịch{filter !== "all" ? ` · ${filter}` : ""}</div>
       </div>
       <div style={{ maxHeight: 380, overflowY: "auto" }}>
@@ -590,34 +749,36 @@ function TransactionsTable({ expenses, categories, filter, onEdit, onDelete }) {
               <th style={{ width: 80 }}>Ngày</th>
               <th>Mô tả</th>
               <th style={{ width: 160 }}>Danh mục</th>
-              <th style={{ width: 130, textAlign:"right" }}>Số tiền</th>
-              <th style={{ width: 80, textAlign:"center" }}>Thao tác</th>
+              <th style={{ width: 130, textAlign: "right" }}>Số tiền</th>
+              <th style={{ width: 80, textAlign: "center" }}>Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((e, i) => (
               <tr key={i}>
-                <td className="muted" style={{ fontVariantNumeric:"tabular-nums" }}>{fmtDateVN(e.date)}</td>
+                <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDateVN(e.date)}</td>
                 <td>{e.description}</td>
                 <td>
                   <span className="tx-cat-chip">
-                    <span className="d" style={{ background: catMap[e.category] || "#a78bfa"}}/>
+                    <span className="d" style={{ background: catMap[e.category] || (isIncome ? INCOME_COLOR : "#a78bfa") }} />
                     {e.category}
                   </span>
                 </td>
-                <td className="amt expense">-{fmtVND(e.amount).replace("-","")}</td>
-                <td style={{ textAlign:"center" }}>
+                <td className={"amt " + (isIncome ? "income" : "expense")}>
+                  {isIncome ? "+" : "-"}{fmtVND(e.amount).replace(/^-/, "")}
+                </td>
+                <td style={{ textAlign: "center" }}>
                   {e.row_number && (
-                    <span style={{ display:"flex", gap:4, justifyContent:"center" }}>
+                    <span style={{ display: "flex", gap: 4, justifyContent: "center" }}>
                       <button
                         className="icon-btn"
-                        style={{ fontSize:11, padding:"2px 5px" }}
+                        style={{ fontSize: 11, padding: "2px 5px" }}
                         onClick={() => onEdit(e)}
                         title="Sửa"
                       >✏️</button>
                       <button
                         className="icon-btn"
-                        style={{ fontSize:11, padding:"2px 5px", color:"var(--danger)" }}
+                        style={{ fontSize: 11, padding: "2px 5px", color: "var(--danger)" }}
                         onClick={() => onDelete(e)}
                         title="Xóa"
                       >🗑</button>
@@ -628,8 +789,8 @@ function TransactionsTable({ expenses, categories, filter, onEdit, onDelete }) {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ textAlign:"center", padding:"32px", color:"var(--text-3)"}}>
-                  Chưa có giao dịch nào trong danh mục này.
+                <td colSpan={5} style={{ textAlign: "center", padding: "32px", color: "var(--text-3)" }}>
+                  {isIncome ? "Chưa có thu nhập nào được ghi nhận." : "Chưa có giao dịch nào trong danh mục này."}
                 </td>
               </tr>
             )}
@@ -641,95 +802,142 @@ function TransactionsTable({ expenses, categories, filter, onEdit, onDelete }) {
 }
 
 function SheetsMain({
-  expenses, categories, filter, onAddExpense, addOpen, setAddOpen, summary,
-  onEdit, onDelete, onEditBalance, onEditBudget, onManageCategories
+  activeTab, expenseItems, incomeItems, categories, incomeCategories,
+  filter, onAddExpense, onAddIncome, addOpen, setAddOpen, summary,
+  onEdit, onDeleteExpense, onDeleteIncome, onEditBalance, onEditBudget, onManageCategories, sheetUrl
 }) {
-  const totalActual = useMemo(() => expenses.reduce((s,e) => s + e.amount, 0), [expenses]);
-  const totalPlanned = useMemo(() => categories.reduce((s,c) => s + c.planned, 0), [categories]);
+  const totalExpense = useMemo(() => expenseItems.reduce((s, e) => s + e.amount, 0), [expenseItems]);
+  const totalPlanned = useMemo(() => categories.reduce((s, c) => s + c.planned, 0), [categories]);
+  const totalIncome = useMemo(() => incomeItems.reduce((s, e) => s + e.amount, 0), [incomeItems]);
+
+  const isIncome = activeTab === "thu";
+  const incomeCatObjs = incomeCategories.map(n => ({ name: n, color: INCOME_COLOR }));
 
   return (
     <div className="module-main">
       <div className="sh-toolbar">
-        <div className="sh-title">Ngân sách</div>
+        <div className="sh-title" style={{ color: isIncome ? "var(--success)" : undefined }}>
+          {isIncome ? "↗ Thu nhập" : "↘ Chi tiêu"}
+        </div>
         <div className="sh-month-pill">
-          <I.Calendar2/>
+          <I.Calendar2 />
           Tháng {new Date().getMonth() + 1} / {new Date().getFullYear()}
         </div>
-        <div style={{ flex: 1 }}/>
+        <div style={{ flex: 1 }} />
         <button className="tb-btn outline" onClick={onManageCategories}>
-          Quản lý danh mục
+          Danh mục {isIncome ? "Thu" : "Chi"}
         </button>
-        <button className="tb-btn outline">
-          <I.Globe style={{ width:14, height:14 }}/> Mở trên Google Sheets
+        <button
+          className="tb-btn outline"
+          onClick={() => sheetUrl && window.open(sheetUrl, "_blank", "noopener")}
+          disabled={!sheetUrl}
+          title={sheetUrl ? "Mở Google Sheets" : "Chưa cấu hình Sheet ID"}
+        >
+          <I.Globe style={{ width: 14, height: 14 }} /> Mở trên Google Sheets
         </button>
-        <button className="cal-create-btn" onClick={() => setAddOpen(true)}>
-          <I.Plus2/> Thêm giao dịch
+        <button
+          className="cal-create-btn"
+          onClick={() => setAddOpen(true)}
+          style={isIncome ? { background: "linear-gradient(135deg, #4ade80, #16a34a)" } : undefined}
+        >
+          <I.Plus2 /> {isIncome ? "Thêm thu nhập" : "Thêm chi tiêu"}
         </button>
       </div>
 
       <div className="sh-content">
-        <SummaryCards
-          totalActual={totalActual}
-          totalPlanned={totalPlanned}
-          income={summary.total_income}
-          openingBalance={summary.opening_balance}
-          onEditBalance={onEditBalance}
-        />
-
-        {addOpen && (
-          <AddExpenseForm
-            categories={categories}
-            onAdd={onAddExpense}
-            onClose={() => setAddOpen(false)}
-          />
+        {isIncome ? (
+          <>
+            <IncomeSummaryCards total={totalIncome} items={incomeItems} openingBalance={summary.opening_balance} />
+            {addOpen && (
+              <AddTransactionForm
+                isIncome={true}
+                categories={incomeCatObjs.length > 0 ? incomeCatObjs : [{ name: "Thu nhập khác", color: INCOME_COLOR }]}
+                onAdd={onAddIncome}
+                onClose={() => setAddOpen(false)}
+              />
+            )}
+            <IncomeCategoryBreakdown incomeCategories={incomeCategories} incomeItems={incomeItems} onEditBudget={onEditBudget} />
+            <TransactionsTable
+              expenses={incomeItems}
+              categories={incomeCatObjs}
+              filter={filter}
+              isIncome={true}
+              onEdit={(item) => onEdit(item, true)}
+              onDelete={onDeleteIncome}
+            />
+          </>
+        ) : (
+          <>
+            <SummaryCards
+              totalActual={totalExpense}
+              totalPlanned={totalPlanned}
+              income={summary.total_income}
+              openingBalance={summary.opening_balance}
+              onEditBalance={onEditBalance}
+            />
+            {addOpen && (
+              <AddTransactionForm
+                isIncome={false}
+                categories={categories}
+                onAdd={onAddExpense}
+                onClose={() => setAddOpen(false)}
+              />
+            )}
+            <div className="sh-row">
+              <CategoryBreakdown categories={categories} expenses={expenseItems} onEditBudget={onEditBudget} />
+              <DonutBudget totalActual={totalExpense} totalPlanned={totalPlanned} />
+            </div>
+            <TransactionsTable
+              expenses={expenseItems}
+              categories={categories}
+              filter={filter}
+              isIncome={false}
+              onEdit={(item) => onEdit(item, false)}
+              onDelete={onDeleteExpense}
+            />
+          </>
         )}
-
-        <div className="sh-row">
-          <CategoryBreakdown categories={categories} expenses={expenses} onEditBudget={onEditBudget}/>
-          <DonutBudget totalActual={totalActual} totalPlanned={totalPlanned}/>
-        </div>
-
-        <TransactionsTable
-          expenses={expenses}
-          categories={categories}
-          filter={filter}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
       </div>
     </div>
   );
 }
 
 export function SheetsModule({ userId }) {
+  const [activeTab, setActiveTab] = useState("chi");
   const [expenses, setExpenses] = useState([]);
+  const [incomeItems, setIncomeItems] = useState([]);
   const [categories, setCategories] = useState(EXPENSE_CATEGORIES);
+  const [incomeCategories, setIncomeCategories] = useState([]);
   const [filter, setFilter] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState({
-    opening_balance: 0,
-    closing_balance: 0,
-    total_expenses: 0,
-    total_income: 0,
+    opening_balance: 0, closing_balance: 0, total_expenses: 0, total_income: 0,
   });
-  const [editingExpense, setEditingExpense] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+  const [editingIsIncome, setEditingIsIncome] = useState(false);
   const [showBalanceModal, setShowBalanceModal] = useState(false);
   const [editingBudget, setEditingBudget] = useState(null);
   const [showCategories, setShowCategories] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState(null);
+
+  const isIncome = activeTab === "thu";
 
   const loadData = () => {
     if (!userId) return;
     setLoading(true);
     Promise.all([
       API.getExpenses(userId, 100),
+      API.getIncomeTransactions(userId, 100),
       API.getCategories(userId),
+      API.getIncomeCategories(userId),
       API.getSummary(userId),
     ])
-      .then(([expData, catData, summaryData]) => {
+      .then(([expData, incData, catData, incomeCatData, summaryData]) => {
         setExpenses(Array.isArray(expData) ? expData : []);
+        setIncomeItems(Array.isArray(incData) ? incData : []);
 
-        const names = (catData.categories || []);
+        const names = catData.categories || [];
         if (names.length > 0) {
           const merged = names.map(name => {
             const local = EXPENSE_CATEGORIES.find(c => c.name === name);
@@ -738,8 +946,11 @@ export function SheetsModule({ userId }) {
           setCategories(merged);
         }
 
+        setIncomeCategories(incomeCatData.categories || []);
+
         if (summaryData) {
           setSummary(summaryData);
+          if (summaryData.sheet_url) setSheetUrl(summaryData.sheet_url);
         }
       })
       .catch(err => console.error("Failed to load sheets data:", err))
@@ -748,30 +959,65 @@ export function SheetsModule({ userId }) {
 
   useEffect(() => { loadData(); }, [userId]);
 
-  const handleAdd = async (item) => {
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setFilter("all");
+    setAddOpen(false);
+  };
+
+  const handleAddExpense = async (item) => {
     try {
       await API.addExpense(userId, item);
       setExpenses(prev => [item, ...prev]);
     } catch (err) {
-      alert("Không thể lưu giao dịch: " + err.message);
+      alert("Không thể lưu: " + err.message);
     }
+  };
+
+  const handleAddIncome = async (item) => {
+    try {
+      await API.addIncome(userId, item);
+      setIncomeItems(prev => [item, ...prev]);
+    } catch (err) {
+      alert("Không thể lưu: " + err.message);
+    }
+  };
+
+  const handleStartEdit = (item, isInc) => {
+    setEditingItem(item);
+    setEditingIsIncome(isInc);
   };
 
   const handleSaveEdit = async (rowNumber, data) => {
     try {
-      const updated = await API.updateExpense(userId, rowNumber, data);
-      setExpenses(prev => prev.map(e => e.row_number === rowNumber ? { ...updated, row_number: rowNumber } : e));
-      setEditingExpense(null);
+      if (editingIsIncome) {
+        const updated = await API.updateIncome(userId, rowNumber, data);
+        setIncomeItems(prev => prev.map(e => e.row_number === rowNumber ? { ...updated, row_number: rowNumber } : e));
+      } else {
+        const updated = await API.updateExpense(userId, rowNumber, data);
+        setExpenses(prev => prev.map(e => e.row_number === rowNumber ? { ...updated, row_number: rowNumber } : e));
+      }
+      setEditingItem(null);
     } catch (err) {
       alert("Không thể cập nhật: " + err.message);
     }
   };
 
-  const handleDelete = async (expense) => {
-    if (!confirm(`Xóa giao dịch "${expense.description}" (${fmtVND(expense.amount)})?`)) return;
+  const handleDeleteExpense = async (expense) => {
+    if (!confirm(`Xóa chi tiêu "${expense.description}" (${fmtVND(expense.amount)})?`)) return;
     try {
       await API.deleteExpense(userId, expense.row_number);
       setExpenses(prev => prev.filter(e => e.row_number !== expense.row_number));
+    } catch (err) {
+      alert("Không thể xóa: " + err.message);
+    }
+  };
+
+  const handleDeleteIncome = async (income) => {
+    if (!confirm(`Xóa thu nhập "${income.description}" (${fmtVND(income.amount)})?`)) return;
+    try {
+      await API.deleteIncome(userId, income.row_number);
+      setIncomeItems(prev => prev.filter(e => e.row_number !== income.row_number));
     } catch (err) {
       alert("Không thể xóa: " + err.message);
     }
@@ -800,36 +1046,51 @@ export function SheetsModule({ userId }) {
     }
   };
 
+  const editCategories = editingIsIncome
+    ? incomeCategories.map(n => ({ name: n, color: INCOME_COLOR }))
+    : categories;
+
   return (
     <>
       <SheetsSidebar
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
         activeFilter={filter}
         onFilter={setFilter}
         categories={categories}
-        expenses={expenses}
+        incomeCategories={incomeCategories}
+        expenseItems={expenses}
+        incomeItems={incomeItems}
         onAddOpen={() => setAddOpen(true)}
       />
       <SheetsMain
-        expenses={expenses}
+        activeTab={activeTab}
+        expenseItems={expenses}
+        incomeItems={incomeItems}
         categories={categories}
+        incomeCategories={incomeCategories}
         filter={filter}
-        onAddExpense={handleAdd}
+        onAddExpense={handleAddExpense}
+        onAddIncome={handleAddIncome}
         addOpen={addOpen}
         setAddOpen={setAddOpen}
         summary={summary}
-        onEdit={setEditingExpense}
-        onDelete={handleDelete}
+        onEdit={handleStartEdit}
+        onDeleteExpense={handleDeleteExpense}
+        onDeleteIncome={handleDeleteIncome}
         onEditBalance={() => setShowBalanceModal(true)}
         onEditBudget={setEditingBudget}
         onManageCategories={() => setShowCategories(true)}
+        sheetUrl={sheetUrl}
       />
 
-      {editingExpense && (
+      {editingItem && (
         <EditExpenseModal
-          expense={editingExpense}
-          categories={categories}
+          expense={editingItem}
+          categories={editCategories}
+          isIncome={editingIsIncome}
           onSave={handleSaveEdit}
-          onClose={() => setEditingExpense(null)}
+          onClose={() => setEditingItem(null)}
         />
       )}
 
@@ -844,6 +1105,7 @@ export function SheetsModule({ userId }) {
       {editingBudget && (
         <EditBudgetModal
           category={editingBudget}
+          isIncome={isIncome}
           onSave={handleSaveBudget}
           onClose={() => setEditingBudget(null)}
         />
@@ -851,8 +1113,12 @@ export function SheetsModule({ userId }) {
 
       {showCategories && (
         <ManageCategoriesModal
-          categories={categories}
+          categories={isIncome
+            ? incomeCategories.map(n => ({ name: n, color: INCOME_COLOR }))
+            : categories
+          }
           userId={userId}
+          isIncome={isIncome}
           onClose={() => setShowCategories(false)}
           onRefresh={loadData}
         />

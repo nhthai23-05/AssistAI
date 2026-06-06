@@ -95,6 +95,211 @@ def _normalize_date_format(date_str: str) -> str:
         return date_str
 
 
+def get_income_categories(db: Session, user_id: int, sheet_id: str) -> List[str]:
+    """
+    Return income category list from "Tóm tắt" sheet, range H28:H44.
+    H = category names, J = planned, K = actual.
+    """
+    try:
+        service = get_sheet_service(db, user_id)
+        sheet_name = _get_sheet_by_name(service, sheet_id, "Tóm tắt")
+        if not sheet_name:
+            meta = service.spreadsheets().get(
+                spreadsheetId=sheet_id,
+                fields="sheets.properties.title",
+            ).execute()
+            sheet_name = meta["sheets"][0]["properties"]["title"]
+
+        result = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!H28:H44",
+        ).execute()
+
+        values = result.get("values", [])
+        categories = []
+        for row in values:
+            if row and len(row) > 0:
+                cat = str(row[0]).strip()
+                if cat:
+                    categories.append(cat)
+
+        return categories
+
+    except (NoOAuthTokenError, GoogleSheetsError):
+        raise
+    except HttpError as e:
+        raise GoogleSheetsError(f"Sheets API error: {str(e)}")
+    except Exception as e:
+        raise GoogleSheetsError(f"Failed to get income categories: {str(e)}")
+
+
+def read_income_transactions(
+    db: Session,
+    user_id: int,
+    sheet_id: str,
+    limit: int = 50,
+) -> List[Dict]:
+    """
+    Return the last `limit` income rows from the "Giao dịch" sheet.
+    Income columns: G=date (DD/MM/YYYY), H=amount, I=description, J=category.
+    Reads from row 5 onwards.
+    """
+    try:
+        service = get_sheet_service(db, user_id)
+        sheet_name = _get_sheet_by_name(service, sheet_id, "Giao dịch")
+        if not sheet_name:
+            meta = service.spreadsheets().get(
+                spreadsheetId=sheet_id,
+                fields="sheets.properties.title",
+            ).execute()
+            sheet_name = meta["sheets"][0]["properties"]["title"]
+
+        result = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!G5:J",
+        ).execute()
+
+        values = result.get("values", [])
+        total = len(values)
+        rows = []
+
+        start_idx = max(0, total - limit)
+        for idx, row in enumerate(values[start_idx:], start=start_idx + 5):
+            if not row or all(not str(cell).strip() for cell in row if cell):
+                continue
+
+            date = row[0] if len(row) > 0 else ""
+            amount = row[1] if len(row) > 1 else ""
+            description = row[2] if len(row) > 2 else ""
+            category = row[3] if len(row) > 3 else ""
+
+            if not str(date).strip():
+                continue
+
+            date = _normalize_date_format(date)
+            amount = _parse_amount(amount)
+
+            rows.append({
+                "date": date,
+                "amount": amount,
+                "description": description.strip(),
+                "category": category.strip(),
+                "row_number": idx,
+            })
+
+        return rows
+
+    except (NoOAuthTokenError, GoogleSheetsError):
+        raise
+    except HttpError as e:
+        raise GoogleSheetsError(f"Sheets API error: {str(e)}")
+    except Exception as e:
+        raise GoogleSheetsError(f"Failed to read income transactions: {str(e)}")
+
+
+def append_income(
+    db: Session,
+    user_id: int,
+    sheet_id: str,
+    date: str,
+    amount: float,
+    description: str,
+    category: str,
+) -> Dict:
+    """
+    Append one income row to the "Giao dịch" sheet, columns G:J.
+    G=date, H=amount, I=description, J=category.
+    """
+    try:
+        service = get_sheet_service(db, user_id)
+        sheet_name = _get_sheet_by_name(service, sheet_id, "Giao dịch")
+        if not sheet_name:
+            meta = service.spreadsheets().get(
+                spreadsheetId=sheet_id,
+                fields="sheets.properties.title",
+            ).execute()
+            sheet_name = meta["sheets"][0]["properties"]["title"]
+
+        amount_display = f"{amount:,.0f}".replace(",", ".")
+
+        result = service.spreadsheets().values().append(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!G:J",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body={"values": [[date, amount_display + " ₫", description, category]]},
+        ).execute()
+
+        row_number: Optional[int] = None
+        updated_range = result.get("updates", {}).get("updatedRange", "")
+        match = re.search(r":J(\d+)", updated_range)
+        if match:
+            row_number = int(match.group(1))
+
+        return {
+            "date": date,
+            "amount": amount,
+            "description": description,
+            "category": category,
+            "row_number": row_number,
+        }
+
+    except (NoOAuthTokenError, GoogleSheetsError):
+        raise
+    except HttpError as e:
+        raise GoogleSheetsError(f"Sheets API error: {str(e)}")
+    except Exception as e:
+        raise GoogleSheetsError(f"Failed to append income: {str(e)}")
+
+
+def update_income(
+    db: Session,
+    user_id: int,
+    sheet_id: str,
+    row_number: int,
+    date: str,
+    amount: float,
+    description: str,
+    category: str,
+) -> Dict:
+    """
+    Update an income row in the "Giao dịch" sheet, columns G:J.
+    """
+    try:
+        service = get_sheet_service(db, user_id)
+        sheet_name = _get_sheet_by_name(service, sheet_id, "Giao dịch")
+        if not sheet_name:
+            meta = service.spreadsheets().get(
+                spreadsheetId=sheet_id,
+                fields="sheets.properties.title",
+            ).execute()
+            sheet_name = meta["sheets"][0]["properties"]["title"]
+
+        amount_display = f"{amount:,.0f}".replace(",", ".")
+
+        service.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!G{row_number}:J{row_number}",
+            valueInputOption="USER_ENTERED",
+            body={"values": [[date, amount_display + " ₫", description, category]]},
+        ).execute()
+
+        return {
+            "date": date,
+            "amount": amount,
+            "description": description,
+            "category": category,
+            "row_number": row_number,
+        }
+
+    except (NoOAuthTokenError, GoogleSheetsError):
+        raise
+    except HttpError as e:
+        raise GoogleSheetsError(f"Sheets API error: {str(e)}")
+    except Exception as e:
+        raise GoogleSheetsError(f"Failed to update income: {str(e)}")
+
+
 def get_categories(db: Session, user_id: int, sheet_id: str) -> List[str]:
     """
     Return category list from "Tóm tắt" sheet, range B28:B41.
@@ -605,12 +810,13 @@ def update_budget(
 
         # Read the category list to find the row
         if is_income:
+            # Income categories in H28:H44; planned budget in column J
             result = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=f"{sheet_name}!J28:J44",
+                range=f"{sheet_name}!H28:H44",
             ).execute()
             start_row = 28
-            col = "K"
+            col = "J"
         else:
             result = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
@@ -687,10 +893,10 @@ def add_category(
             sheet_name = meta["sheets"][0]["properties"]["title"]
 
         if is_income:
-            # Find first empty row in J28:J44
+            # Income categories: H28:H44. Find first empty row.
             result = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=f"{sheet_name}!J28:J44",
+                range=f"{sheet_name}!H28:H44",
             ).execute()
             values = result.get("values", [])
             for idx, row in enumerate(values):
@@ -699,7 +905,7 @@ def add_category(
                     break
             else:
                 target_row = 28 + len(values)
-            col = "J"
+            col = "H"
         else:
             # Find first empty row in B26:B40
             result = service.spreadsheets().values().get(
@@ -769,12 +975,13 @@ def delete_category(
             sheet_name = meta["sheets"][0]["properties"]["title"]
 
         if is_income:
+            # Income categories: H28:H44
             result = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=f"{sheet_name}!J28:J44",
+                range=f"{sheet_name}!H28:H44",
             ).execute()
             start_row = 28
-            col = "J"
+            col = "H"
         else:
             result = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
@@ -784,7 +991,7 @@ def delete_category(
             col = "B"
 
         values = result.get("values", [])
-        
+
         # Find category row
         row_offset = None
         for idx, row in enumerate(values):

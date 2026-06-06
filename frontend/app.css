@@ -592,6 +592,7 @@ body::before {
   color: var(--text-2);
 }
 .meta-btn:hover { background: var(--ink-3); color: var(--text-0); }
+.meta-tokens { font-size: 11px; color: var(--text-3); margin-left: auto; padding-right: 2px; }
 
 .msg-col { display: flex; flex-direction: column; min-width: 0; max-width: 100%;}
 
@@ -767,6 +768,48 @@ body::before {
   margin: 0 2px;
 }
 
+/* image preview in composer */
+.composer-img-preview {
+  position: relative;
+  display: inline-block;
+  margin: 8px 0 4px 4px;
+}
+.composer-img-preview img {
+  display: block;
+  max-height: 80px;
+  max-width: 140px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line-2);
+}
+.composer-img-remove {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--ink-4);
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  border: 1px solid var(--line-2);
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.composer-img-remove:hover { background: var(--red, #ef4444); color: #fff; }
+
+/* image in user message bubble */
+.msg-image {
+  display: block;
+  max-width: 260px;
+  max-height: 200px;
+  border-radius: 10px;
+  object-fit: cover;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255,255,255,.1);
+}
+
 /* tiny caret in streaming */
 .caret {
   display: inline-block;
@@ -784,3 +827,68 @@ body::before {
    ============================================ */
 .divider { height: 1px; background: var(--line); margin: 6px 4px; }
 .menu-sep { height: 1px; background: var(--line-2); margin: 4px 0; }
+
+/* ============================================
+   Sheets — form elements
+   ============================================ */
+.expense-form { display: flex; flex-direction: column; gap: 14px; }
+.expense-form label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin-bottom: 5px;
+}
+.input {
+  width: 100%;
+  background: var(--ink-4);
+  border: 1px solid var(--ink-5);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  color: var(--text-0);
+  outline: none;
+  transition: border-color .15s;
+  box-sizing: border-box;
+}
+.input:focus { border-color: #7c3aed; }
+.input::placeholder { color: var(--text-3); }
+.expense-form select {
+  width: 100%;
+  background: var(--ink-4);
+  border: 1px solid var(--ink-5);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  color: var(--text-0);
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.amount-input { position: relative; }
+.amount-input .input { padding-right: 28px; }
+.amount-input .suffix {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  font-size: 13px;
+  pointer-events: none;
+}
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.submit {
+  width: 100%;
+  background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 45%, #4f46e5 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.submit:hover:not(:disabled) { opacity: .88; }
+.submit:disabled { opacity: .45; cursor: not-allowed; }

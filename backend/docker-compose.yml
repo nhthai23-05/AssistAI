@@ -47,7 +47,6 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
-      - ../frontend:/app/frontend
     depends_on:
       postgres:
         condition: service_healthy

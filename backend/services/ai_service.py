@@ -1,7 +1,5 @@
 """AI Service - LLM integration with exception handling"""
 import json
-import re
-from pathlib import Path
 from typing import Dict, List, Optional, Any
 import openai
 from openai import OpenAI
@@ -9,263 +7,11 @@ from config.config import settings
 from services.token_usage_service import TokenUsageService
 from exceptions import (
     LLMProcessingError,
-    JSONParseError,
-    ActionDetectionError,
     DatabaseError,
 )
 
-PROMPT_PATH = Path(__file__).parent.parent / "prompt"
 token_usage_service = TokenUsageService()
 openai_client = OpenAI(api_key=settings.llm_api_key)
-
-
-def _extract_json(text: str) -> str:
-    """
-    Extract JSON from LLM response (may be wrapped in markdown code block)
-    
-    Raises:
-        JSONParseError: If no valid JSON found in response
-    """
-    # Remove markdown code block if present
-    if "```json" in text:
-        match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            return match.group(1)
-    elif "```" in text:
-        match = re.search(r'```\s*(\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            return match.group(1)
-    
-    # Find first JSON object
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        return match.group(0)
-    
-    raise JSONParseError(f"No valid JSON found in response: {text[:100]}...")
-
-
-async def chat_completion(
-    message: str,
-    prompt_file: Optional[str] = None,
-    context: Optional[Dict[str, Any]] = None,
-    session_id: Optional[int] = None,
-    user_id: Optional[int] = None,
-    image_base64: Optional[str] = None,
-) -> str:
-    """
-    Call OpenAI API with optional prompt template
-    
-    Args:
-        message: User message
-        prompt_file: Prompt template filename in prompt/ directory
-        context: Dict of variables to substitute in template
-        session_id: Session ID for token tracking
-        user_id: User ID for context
-    
-    Returns:
-        LLM response text
-    
-    Raises:
-        LLMProcessingError: If OpenAI API call fails
-        JSONParseError: If response parsing fails (if JSON extraction needed)
-        DatabaseError: If token logging fails
-    """
-    try:
-        # Build full message with prompt template if provided
-        if prompt_file:
-            prompt_path = PROMPT_PATH / prompt_file
-            if prompt_path.exists():
-                prompt_template = prompt_path.read_text(encoding='utf-8')
-                
-                # Substitute context variables in template
-                if context:
-                    for key, value in context.items():
-                        prompt_template = prompt_template.replace(f"{{{key}}}", str(value))
-                
-                full_message = f"{prompt_template}\n\nUser input: {message}"
-            else:
-                full_message = message
-        else:
-            full_message = message
-        
-        # Build message content (text only or text + image)
-        if image_base64:
-            user_content: Any = [
-                {"type": "text", "text": full_message},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
-            ]
-        else:
-            user_content = full_message
-
-        # Call OpenAI API
-        try:
-            response = openai_client.chat.completions.create(
-                model=settings.llm_model,
-                messages=[{"role": "user", "content": user_content}],
-                max_completion_tokens=settings.llm_max_tokens,
-            )
-        except openai.APIConnectionError as e:
-            raise LLMProcessingError(f"Could not connect to OpenAI: {str(e)}")
-        except openai.RateLimitError as e:
-            raise LLMProcessingError(f"OpenAI rate limit exceeded: {str(e)}")
-        except openai.APIStatusError as e:
-            raise LLMProcessingError(f"OpenAI API error {e.status_code}: {e.message}")
-        
-        # Extract response content
-        if not response.choices or not response.choices[0].message.content:
-            raise LLMProcessingError("OpenAI returned empty response")
-        
-        result = response.choices[0].message.content.strip()
-        
-        # Log token usage if session_id provided
-        if session_id and hasattr(response, 'usage') and response.usage:
-            try:
-                await token_usage_service.log_token_usage(
-                    session_id=session_id,
-                    usage_type="llm_api",
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
-                    total_tokens=response.usage.total_tokens,
-                    model=settings.llm_model,
-                )
-            except DatabaseError:
-                # Token logging failure should not block main operation
-                pass
-        
-        return result
-    
-    except (LLMProcessingError, JSONParseError, DatabaseError):
-        raise
-    except Exception as e:
-        raise LLMProcessingError(f"Unexpected error in chat_completion: {str(e)}")
-
-async def parse_event_creation(
-    user_request: str,
-    current_date: Optional[str] = None,
-    events_list: Optional[List[Dict]] = None,
-    session_id: Optional[int] = None,
-) -> Dict[str, Any]:
-    """
-    Parse user request into event creation structure
-    
-    Args:
-        user_request: User request (e.g., "create meeting with team at 3pm tomorrow")
-        current_date: Current date for LLM context
-        events_list: Existing events to avoid conflicts
-        session_id: Session ID for token tracking
-    
-    Returns:
-        Dict with event creation parameters:
-            - summary: Event title
-            - start_datetime: Start time ISO format
-            - end_datetime: End time ISO format
-            - description: (optional) Event description
-            - location: (optional) Event location
-            - attendees: (optional) List of attendee emails
-            - recurrence: (optional) RRULE list
-    
-    Raises:
-        LLMProcessingError: If LLM call fails
-        JSONParseError: If response is not valid JSON
-    """
-    try:
-        from datetime import datetime
-        
-        if not current_date:
-            current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Format events list if provided
-        if events_list:
-            events_text = "\n".join([
-                f"- {event.get('summary', 'No title')}: "
-                f"{event.get('start', {}).get('dateTime', event.get('start', {}).get('date', 'N/A'))} → "
-                f"{event.get('end', {}).get('dateTime', event.get('end', {}).get('date', 'N/A'))}"
-                for event in events_list
-            ])
-        else:
-            events_text = "No events this week"
-        
-        context = {
-            "request": user_request,
-            "current_date": current_date,
-            "events": events_text,
-        }
-        
-        response = await chat_completion(
-            message=user_request,
-            prompt_file="create_event.txt",
-            context=context,
-            session_id=session_id,
-        )
-        
-        # Parse JSON response
-        try:
-            json_str = _extract_json(response)
-            result = json.loads(json_str)
-        except JSONParseError:
-            raise
-        except json.JSONDecodeError as e:
-            raise JSONParseError(f"Invalid JSON in LLM response: {str(e)}")
-        
-        return result
-    
-    except (LLMProcessingError, JSONParseError):
-        raise
-    except Exception as e:
-        raise LLMProcessingError(f"Event parsing failed: {str(e)}")
-
-
-async def detect_calendar_action(
-    user_request: str,
-    session_id: Optional[int] = None,
-) -> Dict[str, Any]:
-    """
-    Detect calendar action type from user request
-    
-    Args:
-        user_request: User request
-        session_id: Session ID for token tracking
-    
-    Returns:
-        Dict with:
-            - action: "create", "update", or "delete"
-            - confidence: Float 0-1
-            - reasoning: Explanation of detected action
-    
-    Raises:
-        ActionDetectionError: If action detection fails
-    """
-    try:
-        context = {"request": user_request}
-        
-        response = await chat_completion(
-            message=user_request,
-            prompt_file="detect_action.txt",
-            context=context,
-            session_id=session_id,
-        )
-        
-        # Parse JSON response
-        try:
-            json_str = _extract_json(response)
-            result = json.loads(json_str)
-        except (JSONParseError, json.JSONDecodeError) as e:
-            raise ActionDetectionError(f"Failed to parse action detection response: {str(e)}")
-        
-        # Validate required fields
-        if "action" not in result:
-            raise ActionDetectionError("Response missing 'action' field")
-        
-        # Set defaults for optional fields
-        result.setdefault("confidence", 0.8)
-        result.setdefault("reasoning", "Action detected from user request")
-        
-        return result
-    
-    except (ActionDetectionError, LLMProcessingError):
-        raise
-    except Exception as e:
-        raise ActionDetectionError(f"Action detection failed: {str(e)}")
 
 
 async def smart_event_operation(
@@ -275,124 +21,410 @@ async def smart_event_operation(
     session_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Perform smart calendar operation (update/delete based on natural language)
-    
-    Args:
-        user_request: User request (e.g., "change meeting to 2pm")
-        events_list: List of existing events
-        operation: "update" or "delete"
-        session_id: Session ID for token tracking
-    
-    Returns:
-        Dict with:
-            - event_id: ID of matched event
-            - updates: (for update) Dict of changes
-            - event_summary: Event name/summary
-            - reasoning: Explanation of action
-    
-    Raises:
-        LLMProcessingError: If LLM call fails
-        JSONParseError: If response is not valid JSON
+    Match user's natural language request to an existing calendar event using function calling.
+
+    Returns dict with event_id and updates (for update) or event_summary (for delete).
+    event_id is None when no matching event is found.
     """
+    events_text = "\n".join([
+        f"ID: {e.get('id')} | {e.get('summary', 'No title')} | "
+        f"Start: {e.get('start', {}).get('dateTime', e.get('start', {}).get('date', 'N/A'))}"
+        for e in events_list
+    ])
+
+    system_prompt = (
+        f"You have the following calendar events:\n{events_text}\n\n"
+        f"The user wants to {operation} one of these events. "
+        "Call the function to indicate which event and what to change. "
+        "If no event matches, use event_id=null."
+    )
+
+    if operation == "update":
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "select_event_to_update",
+                "description": "Select which event to update and specify the changes.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {"type": "string", "description": "ID of the event, or null if not found"},
+                        "updates": {
+                            "type": "object",
+                            "description": "Fields to update (omit unchanged fields)",
+                            "properties": {
+                                "summary": {"type": "string"},
+                                "start_datetime": {"type": "string", "description": "ISO 8601 with +07:00"},
+                                "end_datetime": {"type": "string", "description": "ISO 8601 with +07:00"},
+                                "description": {"type": "string"},
+                                "location": {"type": "string"},
+                            },
+                        },
+                    },
+                    "required": ["event_id", "updates"],
+                },
+            },
+        }]
+        tool_choice = {"type": "function", "function": {"name": "select_event_to_update"}}
+    else:
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "select_event_to_delete",
+                "description": "Select which event to delete.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {"type": "string", "description": "ID of the event, or null if not found"},
+                        "event_summary": {"type": "string", "description": "Event title for confirmation"},
+                    },
+                    "required": ["event_id", "event_summary"],
+                },
+            },
+        }]
+        tool_choice = {"type": "function", "function": {"name": "select_event_to_delete"}}
+
     try:
-        # Format events list
-        events_text = "\n".join([
-            f"ID: {event.get('id')}\n"
-            f"Title: {event.get('summary')}\n"
-            f"Start: {event.get('start', {}).get('dateTime', event.get('start', {}).get('date'))}\n"
-            f"End: {event.get('end', {}).get('dateTime', event.get('end', {}).get('date'))}\n"
-            f"Location: {event.get('location', 'N/A')}\n"
-            for event in events_list
-        ])
-        
-        context = {
-            "events": events_text,
-            "request": user_request,
-            "operation": operation,
-        }
-        
-        # Choose prompt file
-        prompt_file = "choose_events.txt" if operation == "update" else "delete_event.txt"
-        
-        response = await chat_completion(
-            message=user_request,
-            prompt_file=prompt_file,
-            context=context,
-            session_id=session_id,
+        response = openai_client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_request},
+            ],
+            tools=tools,
+            tool_choice=tool_choice,
+            max_completion_tokens=settings.llm_max_tokens,
         )
-        
-        # Parse JSON response
+    except openai.APIConnectionError as e:
+        raise LLMProcessingError(f"Could not connect to OpenAI: {str(e)}")
+    except openai.RateLimitError as e:
+        raise LLMProcessingError(f"OpenAI rate limit exceeded: {str(e)}")
+    except openai.APIStatusError as e:
+        raise LLMProcessingError(f"OpenAI API error {e.status_code}: {e.message}")
+
+    if response.usage and session_id:
         try:
-            json_str = _extract_json(response)
-            result = json.loads(json_str)
-        except (JSONParseError, json.JSONDecodeError) as e:
-            raise JSONParseError(f"Invalid JSON in event operation response: {str(e)}")
-        
-        return result
-    
-    except (LLMProcessingError, JSONParseError):
-        raise
-    except Exception as e:
-        raise LLMProcessingError(f"Smart event operation failed: {str(e)}")
+            await token_usage_service.log_token_usage(
+                session_id=session_id,
+                usage_type="llm_api",
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens or 0,
+                model=settings.llm_model,
+            )
+        except DatabaseError:
+            pass
+
+    msg = response.choices[0].message
+    if not msg.tool_calls:
+        return {"event_id": None, "error": "No matching event found"}
+
+    try:
+        return json.loads(msg.tool_calls[0].function.arguments)
+    except json.JSONDecodeError as e:
+        raise LLMProcessingError(f"Failed to parse event selection response: {str(e)}")
+
+
+def _tool_call_to_intent(name: str, args: Dict[str, Any], tokens: int) -> Dict[str, Any]:
+    base: Dict[str, Any] = {"confidence": 0.95, "_tokens": tokens}
+
+    if name == "add_expense":
+        txns = args.get("transactions", [])
+        return {**base, "intent": "expense", "data": txns[0] if len(txns) == 1 else txns}
+
+    if name == "add_income":
+        txns = args.get("transactions", [])
+        return {**base, "intent": "income", "data": txns[0] if len(txns) == 1 else txns}
+
+    if name == "create_calendar_event":
+        evts = args.get("events", [])
+        return {**base, "intent": "calendar", "action": "create", "data": evts[0] if len(evts) == 1 else evts}
+
+    if name == "update_calendar_event":
+        return {**base, "intent": "calendar", "action": "update", "data": args}
+
+    if name == "delete_calendar_event":
+        return {**base, "intent": "calendar", "action": "delete", "data": args}
+
+    if name == "read_calendar":
+        args.setdefault("limit", 10)
+        args.setdefault("query", "")
+        return {**base, "intent": "read_calendar", "data": args}
+
+    if name == "read_sheet":
+        args.setdefault("limit", 50)
+        args.setdefault("query", "")
+        return {**base, "intent": "read_sheet", "data": args}
+
+    return {"intent": "chat", "confidence": 0.5, "data": {"response": ""}, "_tokens": tokens}
 
 
 async def parse_user_intent(
     message: str,
     categories: Optional[List[str]] = None,
+    income_categories: Optional[List[str]] = None,
     image_base64: Optional[str] = None,
     session_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Classify user message into expense, calendar, or chat intent.
+    Classify user message using OpenAI function calling.
 
-    Returns dict with keys: intent, confidence, data.
-    Falls back to chat intent when confidence < 0.65.
+    Returns dict with intent, action (calendar only), data, _tokens.
+    When no tool is called, returns chat intent with the model's text reply.
 
     Raises:
-        LLMProcessingError: If AI call fails
-        JSONParseError: If response is not parseable JSON
+        LLMProcessingError: If OpenAI API call fails
     """
     from datetime import datetime
 
     current_date = datetime.now().strftime("%Y-%m-%d")
-    categories_str = ", ".join(categories) if categories else "Ăn uống, Di chuyển, Mua sắm, Giải trí, Khác"
+    expense_cats = categories or ["Ăn uống", "Di chuyển", "Mua sắm", "Giải trí", "Khác"]
+    income_cats = income_categories or ["Lương", "Thưởng", "Freelance", "Khác"]
 
-    context = {
-        "current_date": current_date,
-        "categories": categories_str,
-        "message": message,
-    }
+    system_prompt = (
+        f"You are an AI assistant helping users track expenses, income, and calendar events. "
+        f"Current date: {current_date}. "
+        "Amounts in VND: '50k'=50000, '1 triệu'=1000000, '2.5m'=2500000. "
+        "Date defaults to today when not mentioned. "
+        "Expense = money spent/paid; Income = money received (salary, bonus, freelance). "
+        "For receipt images → add_expense (extract store name, total, date). "
+        "For calendar images/posters → create_calendar_event. "
+        "Respond in Vietnamese when no tool is called."
+    )
+
+    def _cat_prop(cats: List[str]) -> Dict[str, Any]:
+        p: Dict[str, Any] = {"type": "string"}
+        if cats:
+            p["enum"] = cats
+        return p
+
+    def _transaction_item(cats: List[str]) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "description": "Date YYYY-MM-DD"},
+                "amount": {"type": "number", "description": "Amount in VND"},
+                "description": {"type": "string"},
+                "category": {**_cat_prop(cats), "description": "Matching category"},
+            },
+            "required": ["date", "amount", "description", "category"],
+        }
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "add_expense",
+                "description": "Record expense transaction(s) — money the user SPENT or PAID (purchases, bills, food, etc.).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "transactions": {
+                            "type": "array",
+                            "items": _transaction_item(expense_cats),
+                            "description": "One or more expense transactions",
+                        }
+                    },
+                    "required": ["transactions"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "add_income",
+                "description": "Record income transaction(s) — money the user RECEIVED or EARNED (salary, bonus, freelance, etc.).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "transactions": {
+                            "type": "array",
+                            "items": _transaction_item(income_cats),
+                            "description": "One or more income transactions",
+                        }
+                    },
+                    "required": ["transactions"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_calendar_event",
+                "description": "Create one or more new calendar events/appointments.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "events": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "summary": {"type": "string", "description": "Event title"},
+                                    "start_datetime": {"type": "string", "description": "ISO datetime YYYY-MM-DDTHH:MM:SS"},
+                                    "end_datetime": {"type": "string", "description": "ISO datetime, default 1 hour after start"},
+                                    "description": {"type": "string"},
+                                    "location": {"type": "string"},
+                                },
+                                "required": ["summary", "start_datetime", "end_datetime"],
+                            },
+                        }
+                    },
+                    "required": ["events"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "update_calendar_event",
+                "description": "Update/modify an existing calendar event.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "event_query": {"type": "string", "description": "Natural language description of which event to update"},
+                        "changes": {
+                            "type": "object",
+                            "description": "Fields to update (only changed fields)",
+                            "properties": {
+                                "summary": {"type": "string"},
+                                "start_datetime": {"type": "string"},
+                                "end_datetime": {"type": "string"},
+                                "location": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                        },
+                    },
+                    "required": ["event_query", "changes"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_calendar_event",
+                "description": "Delete/cancel an existing calendar event.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "event_query": {"type": "string", "description": "Natural language description of which event to delete"}
+                    },
+                    "required": ["event_query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_calendar",
+                "description": "View/list upcoming or past events. Use when user asks WHAT events they have (e.g. 'tuần tới có gì', 'hôm nay có lịch gì').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "days_ahead": {"type": "integer", "description": "Days ahead to look (0 for past-only)"},
+                        "days_back": {"type": "integer", "description": "Days back to look (0 for future-only)"},
+                        "limit": {"type": "integer", "description": "Max events to return (default 10)"},
+                        "query": {"type": "string", "description": "Original query phrase"},
+                    },
+                    "required": ["days_ahead", "days_back"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_sheet",
+                "description": "View expense/income history or spending summary. Use when user asks ABOUT past transactions (e.g. 'tháng này chi bao nhiêu', 'xem lịch sử').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Max rows to return (default 50)"},
+                        "query": {"type": "string", "description": "Original query phrase"},
+                    },
+                    "required": [],
+                },
+            },
+        },
+    ]
+
+    user_content: Any
+    if image_base64:
+        user_content = [
+            {"type": "text", "text": message or "Phân tích ảnh này."},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+        ]
+    else:
+        user_content = message
 
     try:
-        response = await chat_completion(
-            message=message,
-            prompt_file="parse_intent.txt",
-            context=context,
-            session_id=session_id,
-            image_base64=image_base64,
+        response = openai_client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            tools=tools,
+            tool_choice="auto",
+            max_completion_tokens=settings.llm_max_tokens,
         )
+    except openai.APIConnectionError as e:
+        raise LLMProcessingError(f"Could not connect to OpenAI: {str(e)}")
+    except openai.RateLimitError as e:
+        raise LLMProcessingError(f"OpenAI rate limit exceeded: {str(e)}")
+    except openai.APIStatusError as e:
+        raise LLMProcessingError(f"OpenAI API error {e.status_code}: {e.message}")
 
-        try:
-            json_str = _extract_json(response)
-            result = json.loads(json_str)
-        except (JSONParseError, json.JSONDecodeError) as e:
-            raise JSONParseError(f"Failed to parse intent response: {str(e)}")
+    tokens = 0
+    if response.usage:
+        tokens = response.usage.total_tokens or 0
+        if session_id:
+            try:
+                await token_usage_service.log_token_usage(
+                    session_id=session_id,
+                    usage_type="llm_api",
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    total_tokens=tokens,
+                    model=settings.llm_model,
+                )
+            except DatabaseError:
+                pass
 
-        if "intent" not in result or "data" not in result:
-            raise JSONParseError("Intent response missing required fields")
+    msg = response.choices[0].message
 
-        result.setdefault("confidence", 0.8)
+    if not msg.tool_calls:
+        return {
+            "intent": "chat",
+            "confidence": 1.0,
+            "data": {"response": msg.content or ""},
+            "_tokens": tokens,
+        }
 
-        if result.get("confidence", 0) < 0.65 and result["intent"] != "chat":
-            result = {
-                "intent": "chat",
-                "confidence": 1.0,
-                "data": {"response": "Bạn có thể nói rõ hơn không? Tôi chưa hiểu rõ yêu cầu của bạn."},
-            }
+    if len(msg.tool_calls) > 1:
+        expenses: List[Dict] = []
+        income: List[Dict] = []
+        events: List[Dict] = []
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                args = {}
+            if tc.function.name == "add_expense":
+                expenses.extend(args.get("transactions", []))
+            elif tc.function.name == "add_income":
+                income.extend(args.get("transactions", []))
+            elif tc.function.name == "create_calendar_event":
+                events.extend(args.get("events", []))
+        return {
+            "intent": "batch",
+            "confidence": 0.95,
+            "data": {"expenses": expenses, "income": income, "events": events},
+            "_tokens": tokens,
+        }
 
-        return result
-
-    except (LLMProcessingError, JSONParseError):
-        raise
-    except Exception as e:
-        raise LLMProcessingError(f"Intent parsing failed: {str(e)}")
+    tc = msg.tool_calls[0]
+    try:
+        args = json.loads(tc.function.arguments)
+    except json.JSONDecodeError:
+        args = {}
+    return _tool_call_to_intent(tc.function.name, args, tokens)

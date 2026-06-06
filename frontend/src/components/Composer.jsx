@@ -1,8 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 import I from './icons';
 
-export function Composer({ value, onChange, onSend, onStop, isTyping, modelLabel }) {
+export function Composer({ value, onChange, onSend, onStop, isTyping, modelLabel, image, onImageChange }) {
   const taRef = useRef(null);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     const el = taRef.current;
@@ -14,16 +15,31 @@ export function Composer({ value, onChange, onSend, onStop, isTyping, modelLabel
   const onKey = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!isTyping && value.trim()) onSend();
+      if (!isTyping && canSend) onSend();
     }
   };
 
-  const canSend = value.trim().length > 0 && !isTyping;
+  const handleImageFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => onImageChange(ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const canSend = !isTyping && (value.trim().length > 0 || !!image);
 
   return (
     <div className="composer-wrap">
       <div className="composer">
         <div className="composer-inner">
+          {image && (
+            <div className="composer-img-preview">
+              <img src={image} alt="preview"/>
+              <button className="composer-img-remove" onClick={() => onImageChange(null)} title="Xóa ảnh">×</button>
+            </div>
+          )}
           <textarea
             ref={taRef}
             value={value}
@@ -34,7 +50,16 @@ export function Composer({ value, onChange, onSend, onStop, isTyping, modelLabel
           />
           <div className="composer-toolbar">
             <button className="cmp-btn" title="Đính kèm file"><I.Paperclip/></button>
-            <button className="cmp-btn" title="Đính kèm ảnh"><I.Image/></button>
+            <button className="cmp-btn" title="Đính kèm ảnh" onClick={() => fileRef.current?.click()}>
+              <I.Image/>
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleImageFile}
+            />
             <button className="cmp-btn" title="Tìm trên web"><I.Globe/> <span>Search</span></button>
             <button className="cmp-btn" title="Nhập bằng giọng nói"><I.Mic/></button>
             <span className="cmp-spacer"/>

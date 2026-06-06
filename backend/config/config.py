@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 
     # Google Sheets — ID from spreadsheet URL (docs.google.com/spreadsheets/d/{ID}/edit)
     google_sheet_id: str = ""
+
+    # Kaggle — used only by evals scripts, not required for app runtime
+    kaggle_api_token: str = ""
     
     # App Settings
     app_name: str = "AssistAI Desktop"

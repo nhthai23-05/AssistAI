@@ -19,6 +19,7 @@ class Message(TimestampMixin, Base):
     session_id = Column(Integer, ForeignKey("assistant_session.session_id"), nullable=False, index=True)
     role = Column(Enum(MessageRole), nullable=False)
     content = Column(Text, nullable=False)
+    actions_json = Column(Text, nullable=True)
     
     # Relationships
     session = relationship("AssistantSession", back_populates="messages")

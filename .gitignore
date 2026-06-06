@@ -36,6 +36,10 @@ Thumbs.db
 .claude/
 .agents/
 
+# Evals
+backend/evals/data/
+backend/evals/results/
+
 # Frontend (Vite)
 frontend/node_modules/
 frontend/dist/

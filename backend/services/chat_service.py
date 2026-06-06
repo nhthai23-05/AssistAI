@@ -1,4 +1,5 @@
 """Chat Service - AI chat with message persistence and intent parsing"""
+import json
 import logging
 import time
 from typing import Optional, Dict, List
@@ -6,7 +7,7 @@ from typing import Optional, Dict, List
 logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
-from services.ai_service import parse_user_intent, detect_calendar_action, smart_event_operation
+from services.ai_service import parse_user_intent, smart_event_operation
 from models.message import Message, MessageRole
 from models.assistant_session import AssistantSession, SessionStatus
 from models.workspace import Workspace, WorkspaceStatus
@@ -81,7 +82,7 @@ class ChatService:
             LLMProcessingError: If AI call fails
             DatabaseError: If DB write fails
         """
-        if not message or not message.strip():
+        if not message.strip() and not image_base64:
             raise ValidationError("Message cannot be empty")
 
         try:
@@ -99,21 +100,25 @@ class ChatService:
 
             t_start = time.monotonic()
 
-            # Fetch categories for intent parsing (best-effort, non-blocking)
+            # Fetch categories for tool definitions (best-effort, non-blocking)
             categories: List[str] = []
+            income_categories: List[str] = []
             try:
                 from config.config import settings
                 from services.sheets_service import get_categories as fetch_categories
+                from services.sheets_service import get_income_categories as fetch_income_categories
                 if settings.google_sheet_id:
                     categories = fetch_categories(db, user_id, settings.google_sheet_id)
+                    income_categories = fetch_income_categories(db, user_id, settings.google_sheet_id)
             except Exception:
                 pass
 
-            # Parse intent via AI
+            # Parse intent via AI (function calling)
             try:
                 intent_result = await parse_user_intent(
                     message=message,
                     categories=categories,
+                    income_categories=income_categories,
                     image_base64=image_base64,
                     session_id=session_id,
                 )
@@ -121,6 +126,7 @@ class ChatService:
                 raise LLMProcessingError(f"AI processing failed: {str(e)}")
 
             thinking_ms = int((time.monotonic() - t_start) * 1000)
+            tokens_used = intent_result.pop("_tokens", 0)
 
             # Build response text and actions list
             intent = intent_result.get("intent", "chat")
@@ -199,11 +205,7 @@ class ChatService:
                     response_text = "Xin lỗi, tôi không thể đọc dữ liệu thu chi lúc này."
 
             elif intent == "calendar":
-                try:
-                    action_result = await detect_calendar_action(message, session_id=session_id)
-                    calendar_action = action_result.get("action", "create")
-                except Exception:
-                    calendar_action = "create"
+                calendar_action = intent_result.get("action", "create")
 
                 if calendar_action == "create":
                     event_list = data if isinstance(data, list) else [data]
@@ -224,8 +226,9 @@ class ChatService:
                     try:
                         from services.calendar_service import list_events as _list_events
                         events = await _list_events(db, user_id, days_ahead=30, days_back=7)
+                        event_query = data.get("event_query", message)
                         op_result = await smart_event_operation(
-                            message, events, calendar_action, session_id=session_id
+                            event_query, events, calendar_action, session_id=session_id
                         )
                         if not op_result.get("event_id"):
                             response_text = op_result.get(
@@ -272,12 +275,26 @@ class ChatService:
                 )
                 actions = [ChatActionData(action_type="write_sheet", action_status="pending", data=data)]
 
+            elif intent == "income":
+                count = len(data) if isinstance(data, list) else 1
+                response_text = (
+                    f"Tôi đã phân tích {count} khoản thu. "
+                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                ) if count > 1 else (
+                    "Tôi đã phân tích yêu cầu của bạn. "
+                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                )
+                actions = [ChatActionData(action_type="write_income_sheet", action_status="pending", data=data)]
+
             elif intent == "batch":
                 expenses = data.get("expenses", [])
+                income_items = data.get("income", [])
                 events = data.get("events", [])
                 parts = []
                 if expenses:
                     parts.append(f"{len(expenses)} khoản chi")
+                if income_items:
+                    parts.append(f"{len(income_items)} khoản thu")
                 if events:
                     parts.append(f"{len(events)} sự kiện")
                 response_text = (
@@ -289,6 +306,11 @@ class ChatService:
                     actions.append(ChatActionData(
                         action_type="write_sheet", action_status="pending",
                         data=expenses if len(expenses) > 1 else expenses[0],
+                    ))
+                if income_items:
+                    actions.append(ChatActionData(
+                        action_type="write_income_sheet", action_status="pending",
+                        data=income_items if len(income_items) > 1 else income_items[0],
                     ))
                 for event in events:
                     actions.append(ChatActionData(
@@ -307,10 +329,15 @@ class ChatService:
                 )
                 db.add(user_msg)
 
+                actions_json_str = json.dumps([
+                    {"action_type": a.action_type, "action_status": a.action_status, "data": a.data}
+                    for a in actions
+                ]) if actions else None
                 assistant_msg = Message(
                     session_id=session_id,
                     role=MessageRole.ASSISTANT,
                     content=response_text,
+                    actions_json=actions_json_str,
                 )
                 db.add(assistant_msg)
                 db.commit()
@@ -324,7 +351,7 @@ class ChatService:
                 "session_id": session_id,
                 "response": response_text,
                 "actions": actions,
-                "tokens_used": 0,
+                "tokens_used": tokens_used,
                 "thinking_time_ms": thinking_ms,
                 "created_at": assistant_msg.created_at,
             }
@@ -364,14 +391,20 @@ class ChatService:
                 .all()
             )
 
-            return [
-                {
+            result = []
+            for msg in reversed(messages):
+                entry = {
                     "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
                     "content": msg.content,
                     "created_at": msg.created_at.isoformat() if msg.created_at else None,
                 }
-                for msg in reversed(messages)
-            ]
+                if msg.actions_json:
+                    try:
+                        entry["actions"] = json.loads(msg.actions_json)
+                    except Exception:
+                        pass
+                result.append(entry)
+            return result
 
         except SessionNotFoundError:
             raise

@@ -107,6 +107,7 @@ function Message({ msg, streaming, onActionAccept, onActionReject, msgIdx }) {
       )}
       <div className="msg-col">
         <div className={"bubble " + (isUser ? "user" : "ai")}>
+          {isUser && msg.image && <img src={msg.image} className="msg-image" alt=""/>}
           {msg.text && renderBody(msg.text)}
           {msg.code && <pre><code>{highlightCode(msg.code)}</code></pre>}
           {streaming && <span className="caret"/>}
@@ -125,6 +126,7 @@ function Message({ msg, streaming, onActionAccept, onActionReject, msgIdx }) {
             <button className="meta-btn" title="Regenerate"><I.Refresh/></button>
             <button className="meta-btn" title="Good response"><I.Thumb/></button>
             <button className="meta-btn" title="Bad response"><I.Thumb style={{ transform: "rotate(180deg)" }}/></button>
+            {msg.tokens > 0 && <span className="meta-tokens">{msg.tokens} tok</span>}
           </div>
         )}
       </div>

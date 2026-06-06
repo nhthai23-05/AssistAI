@@ -3,7 +3,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from config.database import get_db
 from config.config import settings
-from services.sheets_service import get_categories, append_expense, read_expenses, get_summary_data, delete_expense, update_expense, update_balance, update_budget, add_category, delete_category
+from services.sheets_service import (
+    get_categories, get_income_categories,
+    append_expense, read_expenses, get_summary_data,
+    delete_expense, update_expense, update_balance, update_budget,
+    add_category, delete_category,
+    read_income_transactions, append_income, update_income,
+)
 from services.auth_service import has_valid_token
 from schemas.sheets_ops import (
     ExpenseCreate,
@@ -34,6 +40,21 @@ async def list_categories(
 
     resolved_sheet_id = sheet_id or settings.google_sheet_id
     categories = get_categories(db, user_id, resolved_sheet_id)
+    return CategoryListResponse(categories=categories)
+
+
+@router.get("/income-categories", response_model=CategoryListResponse)
+async def list_income_categories(
+    user_id: int = Query(..., description="User ID", gt=0),
+    sheet_id: str = Query(None, description="Google Sheet ID (defaults to GOOGLE_SHEET_ID env)"),
+    db: Session = Depends(get_db),
+):
+    """Return income category values from the Tóm tắt sheet (J28:J44)."""
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+
+    resolved_sheet_id = sheet_id or settings.google_sheet_id
+    categories = get_income_categories(db, user_id, resolved_sheet_id)
     return CategoryListResponse(categories=categories)
 
 
@@ -93,6 +114,8 @@ async def get_summary(
 
     resolved_sheet_id = sheet_id or settings.google_sheet_id
     summary = get_summary_data(db, user_id, resolved_sheet_id)
+    if resolved_sheet_id:
+        summary["sheet_url"] = f"https://docs.google.com/spreadsheets/d/{resolved_sheet_id}/edit"
     return SummaryDataResponse(**summary)
 
 
@@ -181,6 +204,79 @@ async def update_budget_endpoint(
         is_income=request.is_income,
     )
     return UpdateBudgetRequest(**result)
+
+
+@router.get("/income-transactions", response_model=List[ExpenseRow])
+async def list_income_transactions(
+    user_id: int = Query(..., description="User ID", gt=0),
+    sheet_id: str = Query(None, description="Google Sheet ID (defaults to GOOGLE_SHEET_ID env)"),
+    limit: int = Query(50, description="Max rows to return", ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Return the last N income rows from the Giao dịch sheet (columns G:J)."""
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+
+    resolved_sheet_id = sheet_id or settings.google_sheet_id
+    rows = read_income_transactions(db, user_id, resolved_sheet_id, limit)
+    return [ExpenseRow(**r) for r in rows]
+
+
+@router.post("/income", response_model=ExpenseCreateResponse, status_code=201)
+async def create_income(
+    request: ExpenseCreate,
+    user_id: int = Query(..., description="User ID", gt=0),
+    sheet_id: str = Query(None, description="Google Sheet ID (defaults to GOOGLE_SHEET_ID env)"),
+    db: Session = Depends(get_db),
+):
+    """Append one income row to the Giao dịch sheet (columns G:J)."""
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+
+    resolved_sheet_id = sheet_id or settings.google_sheet_id
+    result = append_income(
+        db=db, user_id=user_id, sheet_id=resolved_sheet_id,
+        date=request.date, amount=request.amount,
+        description=request.description, category=request.category,
+    )
+    return ExpenseCreateResponse(success=True, row_number=result.get("row_number"), data=ExpenseRow(**result))
+
+
+@router.put("/income/{row_number}", response_model=ExpenseRow, status_code=200)
+async def update_income_row(
+    row_number: int,
+    request: ExpenseCreate,
+    user_id: int = Query(..., description="User ID", gt=0),
+    sheet_id: str = Query(None, description="Google Sheet ID (defaults to GOOGLE_SHEET_ID env)"),
+    db: Session = Depends(get_db),
+):
+    """Update an income row in the Giao dịch sheet (columns G:J)."""
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+
+    resolved_sheet_id = sheet_id or settings.google_sheet_id
+    result = update_income(
+        db=db, user_id=user_id, sheet_id=resolved_sheet_id,
+        row_number=row_number, date=request.date, amount=request.amount,
+        description=request.description, category=request.category,
+    )
+    return ExpenseRow(**result)
+
+
+@router.delete("/income/{row_number}", response_model=SuccessResponse, status_code=200)
+async def delete_income_row(
+    row_number: int,
+    user_id: int = Query(..., description="User ID", gt=0),
+    sheet_id: str = Query(None, description="Google Sheet ID (defaults to GOOGLE_SHEET_ID env)"),
+    db: Session = Depends(get_db),
+):
+    """Delete an income row by row number (deletes entire row from Giao dịch sheet)."""
+    if not has_valid_token(db, user_id):
+        raise NoValidTokenError(user_id)
+
+    resolved_sheet_id = sheet_id or settings.google_sheet_id
+    delete_expense(db, user_id, resolved_sheet_id, row_number)
+    return SuccessResponse(success=True)
 
 
 @router.post("/categories", response_model=ManageCategoryRequest, status_code=201)
