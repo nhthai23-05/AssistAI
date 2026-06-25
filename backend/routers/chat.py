@@ -5,7 +5,7 @@ from typing import List
 from config.database import get_db
 from services.chat_service import ChatService
 from services.auth_service import has_valid_token
-from schemas.chat import ChatMessageRequest, ChatMessageResponse, ChatSessionSummary
+from schemas.chat import ChatMessageRequest, ChatMessageResponse, ChatSessionSummary, ActionStatusEnum, ActionStatusResponse
 from exceptions import NoValidTokenError
 
 router = APIRouter(tags=["chat"])
@@ -76,11 +76,11 @@ async def list_sessions(
     return [ChatSessionSummary(**s) for s in sessions]
 
 
-@router.patch("/messages/{message_id}/actions/{action_idx}")
+@router.patch("/messages/{message_id}/actions/{action_idx}", response_model=ActionStatusResponse)
 async def update_action_status(
     message_id: int,
     action_idx: int,
-    status: str = Query(..., description="New status: accepted or rejected"),
+    status: ActionStatusEnum = Query(..., description="New status: accepted or rejected"),
     user_id: int = Query(..., description="User ID", gt=0),
     db: Session = Depends(get_db),
 ):
@@ -88,8 +88,8 @@ async def update_action_status(
     if not has_valid_token(db, user_id):
         raise NoValidTokenError(user_id)
 
-    ChatService.update_action_status(db, message_id, action_idx, status)
-    return {"success": True}
+    ChatService.update_action_status(db, user_id, message_id, action_idx, status)
+    return ActionStatusResponse(success=True)
 
 
 @router.delete("/sessions/{session_id}")

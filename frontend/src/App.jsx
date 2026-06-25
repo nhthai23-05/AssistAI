@@ -58,7 +58,7 @@ export default function App() {
 
   if (!authed) return <LoginPage onLogin={handleLogin}/>;
 
-  const show = (tab) => active === tab ? { display: "contents" } : { display: "none" };
+  const show = (tab) => active !== tab ? { display: "none" } : { display: "contents" };
 
   return (
     <div className="app">

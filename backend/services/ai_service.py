@@ -206,7 +206,7 @@ async def parse_user_intent(
     system_prompt = (
         f"You are an AI assistant helping users track expenses, income, and calendar events. "
         f"Current date: {current_date}. "
-        "Amounts in VND: '50k'=50000, '1 triệu'=1000000, '2.5m'=2500000. "
+        "Amounts in VND: '50k'=50000, '1 triệu'=1000000, '2.5m'=2500000. Always positive (> 0). If user gives a negative amount, DO NOT call a tool — reply explaining amounts must be positive. "
         "Date defaults to today when not mentioned. "
         "Expense = money spent/paid; Income = money received (salary, bonus, freelance). "
         "For receipt images → add_expense (extract store name, total, date). "
@@ -230,7 +230,7 @@ async def parse_user_intent(
             "type": "object",
             "properties": {
                 "date": {"type": "string", "description": "Date YYYY-MM-DD"},
-                "amount": {"type": "number", "description": "Amount in VND"},
+                "amount": {"type": "number", "description": "Amount in VND, MUST be positive (> 0). Never use negative values.", "exclusiveMinimum": 0},
                 "description": {"type": "string"},
                 "category": {**_cat_prop(cats), "description": "Matching category"},
             },

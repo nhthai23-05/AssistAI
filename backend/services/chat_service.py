@@ -20,6 +20,16 @@ from exceptions import (
 )
 
 
+def _find_invalid_amounts(data) -> bool:
+    """Return True if any transaction in data has a non-positive amount."""
+    items = data if isinstance(data, list) else [data]
+    return any(
+        not isinstance(item.get("amount"), (int, float)) or item.get("amount", 0) <= 0
+        for item in items
+        if isinstance(item, dict)
+    )
+
+
 class ChatService:
 
     @staticmethod
@@ -271,57 +281,70 @@ class ChatService:
                     actions = [ChatActionData(action_type="create_event", action_status="pending", data=data)]
 
             elif intent == "expense":
-                count = len(data) if isinstance(data, list) else 1
-                response_text = (
-                    f"Tôi đã phân tích {count} khoản chi. "
-                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
-                ) if count > 1 else (
-                    "Tôi đã phân tích yêu cầu của bạn. "
-                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
-                )
-                actions = [ChatActionData(action_type="write_sheet", action_status="pending", data=data)]
+                invalid = _find_invalid_amounts(data)
+                if invalid:
+                    response_text = "Số tiền phải là số dương (> 0). Vui lòng nhập lại với số tiền hợp lệ."
+                else:
+                    count = len(data) if isinstance(data, list) else 1
+                    response_text = (
+                        f"Tôi đã phân tích {count} khoản chi. "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    ) if count > 1 else (
+                        "Tôi đã phân tích yêu cầu của bạn. "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    )
+                    actions = [ChatActionData(action_type="write_sheet", action_status="pending", data=data)]
 
             elif intent == "income":
-                count = len(data) if isinstance(data, list) else 1
-                response_text = (
-                    f"Tôi đã phân tích {count} khoản thu. "
-                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
-                ) if count > 1 else (
-                    "Tôi đã phân tích yêu cầu của bạn. "
-                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
-                )
-                actions = [ChatActionData(action_type="write_income_sheet", action_status="pending", data=data)]
+                invalid = _find_invalid_amounts(data)
+                if invalid:
+                    response_text = "Số tiền phải là số dương (> 0). Vui lòng nhập lại với số tiền hợp lệ."
+                else:
+                    count = len(data) if isinstance(data, list) else 1
+                    response_text = (
+                        f"Tôi đã phân tích {count} khoản thu. "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    ) if count > 1 else (
+                        "Tôi đã phân tích yêu cầu của bạn. "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    )
+                    actions = [ChatActionData(action_type="write_income_sheet", action_status="pending", data=data)]
 
             elif intent == "batch":
                 expenses = data.get("expenses", [])
                 income_items = data.get("income", [])
                 events = data.get("events", [])
-                parts = []
-                if expenses:
-                    parts.append(f"{len(expenses)} khoản chi")
-                if income_items:
-                    parts.append(f"{len(income_items)} khoản thu")
-                if events:
-                    parts.append(f"{len(events)} sự kiện")
-                response_text = (
-                    "Tôi đã phân tích " + " và ".join(parts) + ". "
-                    "Vui lòng xem lại thông tin bên dưới và xác nhận."
-                )
-                actions = []
-                if expenses:
-                    actions.append(ChatActionData(
-                        action_type="write_sheet", action_status="pending",
-                        data=expenses if len(expenses) > 1 else expenses[0],
-                    ))
-                if income_items:
-                    actions.append(ChatActionData(
-                        action_type="write_income_sheet", action_status="pending",
-                        data=income_items if len(income_items) > 1 else income_items[0],
-                    ))
-                for event in events:
-                    actions.append(ChatActionData(
-                        action_type="create_event", action_status="pending", data=event,
-                    ))
+                invalid_exp = _find_invalid_amounts(expenses)
+                invalid_inc = _find_invalid_amounts(income_items)
+                if invalid_exp or invalid_inc:
+                    response_text = "Số tiền phải là số dương (> 0). Vui lòng nhập lại với số tiền hợp lệ."
+                else:
+                    parts = []
+                    if expenses:
+                        parts.append(f"{len(expenses)} khoản chi")
+                    if income_items:
+                        parts.append(f"{len(income_items)} khoản thu")
+                    if events:
+                        parts.append(f"{len(events)} sự kiện")
+                    response_text = (
+                        "Tôi đã phân tích " + " và ".join(parts) + ". "
+                        "Vui lòng xem lại thông tin bên dưới và xác nhận."
+                    )
+                    actions = []
+                    if expenses:
+                        actions.append(ChatActionData(
+                            action_type="write_sheet", action_status="pending",
+                            data=expenses if len(expenses) > 1 else expenses[0],
+                        ))
+                    if income_items:
+                        actions.append(ChatActionData(
+                            action_type="write_income_sheet", action_status="pending",
+                            data=income_items if len(income_items) > 1 else income_items[0],
+                        ))
+                    for event in events:
+                        actions.append(ChatActionData(
+                            action_type="create_event", action_status="pending", data=event,
+                        ))
 
             else:
                 response_text = data.get("response", "")
@@ -331,11 +354,7 @@ class ChatService:
             if is_new_session and intent in ("chat", "read_calendar", "read_sheet"):
                 suggested_title = await generate_chat_title(message) or None
                 if suggested_title:
-                    try:
-                        session.title = suggested_title
-                        db.add(session)
-                    except Exception:
-                        pass
+                    session.title = suggested_title
 
             # Persist user message + assistant response
             try:
@@ -467,10 +486,15 @@ class ChatService:
             raise DatabaseError(f"Failed to list sessions: {str(e)}")
 
     @staticmethod
-    def update_action_status(db: Session, message_id: int, action_idx: int, status: str) -> bool:
+    def update_action_status(db: Session, user_id: int, message_id: int, action_idx: int, status: str) -> bool:
         """Persist accepted/rejected status for a specific action within a message."""
         try:
-            msg = db.query(Message).filter(Message.message_id == message_id).first()
+            msg = (
+                db.query(Message)
+                .join(AssistantSession, Message.session_id == AssistantSession.session_id)
+                .filter(Message.message_id == message_id, AssistantSession.user_id == user_id)
+                .first()
+            )
             if not msg or not msg.actions_json:
                 return False
             actions = json.loads(msg.actions_json)

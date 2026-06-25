@@ -255,7 +255,7 @@ export function ChatModule({ userId, userEmail }) {
       } else if (action.type === "delete_event") {
         await API.deleteEvent(userId, action.data.event_id);
       }
-      if (messageId) API.updateActionStatus(userId, messageId, actionIdx, "accepted").catch(() => {});
+      if (messageId) API.updateActionStatus(userId, messageId, actionIdx, "accepted").catch(err => console.error("Failed to persist action status:", err));
     } catch (err) {
       // Roll back and show error
       updateActive(c => ({
@@ -286,7 +286,7 @@ export function ChatModule({ userId, userEmail }) {
       return { ...c, messages: msgs };
     });
 
-    if (messageId) API.updateActionStatus(userId, messageId, actionIdx, "rejected").catch(() => {});
+    if (messageId) API.updateActionStatus(userId, messageId, actionIdx, "rejected").catch(err => console.error("Failed to persist action status:", err));
   };
 
   useEffect(() => {

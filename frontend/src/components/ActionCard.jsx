@@ -16,10 +16,12 @@ function formatDatetime(raw) {
   if (!raw) return "";
   try {
     const d = new Date(raw);
-    if (raw.includes("T")) {
-      return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    if (Number.isNaN(d.getTime())) return raw;
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+    if (isDateOnly) {
+      return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
     }
-    return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch {
     return raw;
   }
@@ -98,23 +100,26 @@ export function ActionCard({ action, onAccept, onReject }) {
   const isMultiExpense = action.type === "write_sheet" && Array.isArray(action.data);
   const multiCount = isMultiExpense ? action.data.length : 1;
 
+  const isMultiIncome = action.type === "write_income_sheet" && Array.isArray(action.data);
+  const incomeCount = isMultiIncome ? action.data.length : 1;
+
   const typeMap = {
-    create_event: { title: "Tạo sự kiện mới",   icon: <I.Calendar2/>, accept: "Thêm vào Calendar" },
-    update_event: { title: "Cập nhật sự kiện",   icon: <I.Pencil/>,    accept: "Cập nhật" },
-    delete_event: { title: "Xóa sự kiện",         icon: <I.Trash/>,     accept: "Xóa" },
-    write_sheet:  {
-      title: isMultiExpense ? `Ghi ${multiCount} giao dịch` : "Ghi giao dịch",
-      icon: <I.Wallet/>,
-      accept: "Lưu vào Sheet",
-    },
-    read_sheet:   { title: "Đọc dữ liệu",          icon: <I.Sheet/>,     accept: "OK" },
+    create_event:       { title: "Tạo sự kiện mới",                                    icon: <I.Calendar2/>, accept: "Thêm vào Calendar" },
+    update_event:       { title: "Cập nhật sự kiện",                                   icon: <I.Pencil/>,    accept: "Cập nhật" },
+    delete_event:       { title: "Xóa sự kiện",                                        icon: <I.Trash/>,     accept: "Xóa" },
+    write_sheet:        { title: isMultiExpense ? `Ghi ${multiCount} khoản chi` : "Ghi khoản chi",   icon: <I.Wallet/>, accept: "Lưu vào Sheet" },
+    write_income_sheet: { title: isMultiIncome  ? `Ghi ${incomeCount} khoản thu` : "Ghi khoản thu", icon: <I.Wallet/>, accept: "Lưu vào Sheet" },
+    read_sheet:         { title: "Đọc dữ liệu",                                        icon: <I.Sheet/>,     accept: "OK" },
   };
   const meta = typeMap[action.type] || typeMap.create_event;
 
   const acceptedText = {
-    write_sheet:  isMultiExpense
-      ? `Đã ghi ${multiCount} giao dịch vào Google Sheets`
-      : "Đã ghi vào Google Sheets",
+    write_sheet:        isMultiExpense
+      ? `Đã ghi ${multiCount} khoản chi vào Google Sheets`
+      : "Đã ghi khoản chi vào Google Sheets",
+    write_income_sheet: isMultiIncome
+      ? `Đã ghi ${incomeCount} khoản thu vào Google Sheets`
+      : "Đã ghi khoản thu vào Google Sheets",
     create_event: "Đã thêm vào Google Calendar",
     update_event: "Đã cập nhật sự kiện",
     delete_event: "Đã xóa sự kiện",

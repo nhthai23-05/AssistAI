@@ -1,6 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
+import zoneinfo
+
+_VALID_TIMEZONES = zoneinfo.available_timezones()
 
 
 class EventCreate(BaseModel):
@@ -11,9 +14,22 @@ class EventCreate(BaseModel):
     end_datetime: datetime = Field(..., description="Event end time (ISO 8601)")
     description: Optional[str] = Field(None, max_length=2000, description="Event description")
     location: Optional[str] = Field(None, max_length=500, description="Event location")
-    attendees: Optional[List[str]] = Field(None, description="Email addresses of attendees")
+    attendees: Optional[List[EmailStr]] = Field(None, description="Email addresses of attendees")
     recurrence: Optional[List[str]] = Field(None, description="Recurrence rules (RRULE format)")
-    timezone: Optional[str] = Field("UTC", description="Timezone for event times")
+    timezone: Optional[str] = Field("Asia/Ho_Chi_Minh", description="IANA timezone name")
+
+    @model_validator(mode="after")
+    def end_after_start(self):
+        if self.end_datetime <= self.start_datetime:
+            raise ValueError("end_datetime phải sau start_datetime")
+        return self
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, v):
+        if v and v not in _VALID_TIMEZONES:
+            raise ValueError(f"'{v}' không phải IANA timezone hợp lệ")
+        return v
 
 
 class EventUpdate(BaseModel):
@@ -23,7 +39,7 @@ class EventUpdate(BaseModel):
     end_datetime: Optional[datetime] = None
     description: Optional[str] = Field(None, max_length=2000)
     location: Optional[str] = Field(None, max_length=500)
-    attendees: Optional[List[str]] = None
+    attendees: Optional[List[EmailStr]] = None
     recurrence: Optional[dict] = None
 
 

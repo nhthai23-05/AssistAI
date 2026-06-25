@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 
 
@@ -39,15 +39,21 @@ class UpdateBalanceRequest(BaseModel):
     opening_balance: Optional[float] = Field(None, description="New opening balance")
     closing_balance: Optional[float] = Field(None, description="New closing balance")
 
+    @model_validator(mode="after")
+    def at_least_one_field(self):
+        if self.opening_balance is None and self.closing_balance is None:
+            raise ValueError("Phải cung cấp ít nhất một trong opening_balance hoặc closing_balance")
+        return self
+
 
 class UpdateBudgetRequest(BaseModel):
-    category: str = Field(..., description="Category name")
+    category: str = Field(..., min_length=1, max_length=100, description="Category name")
     budget_amount: float = Field(..., gt=0, description="New budget amount")
     is_income: bool = Field(False, description="True for income, False for expense")
 
 
 class ManageCategoryRequest(BaseModel):
-    category: str = Field(..., description="Category name")
+    category: str = Field(..., min_length=1, max_length=100, description="Category name")
     is_income: bool = Field(False, description="True for income, False for expense")
 
 
