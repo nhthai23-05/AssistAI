@@ -97,6 +97,12 @@ const API = {
     apiFetch(`/api/sheets/income/${rowNumber}?user_id=${userId}`, { method: "PUT", body: income }),
   deleteIncome: (userId, rowNumber) =>
     apiFetch(`/api/sheets/income/${rowNumber}?user_id=${userId}`, { method: "DELETE" }),
+  getBudgets: (userId) =>
+    apiFetch(`/api/sheets/budgets?user_id=${userId}`),
+  getSheetId: (userId) =>
+    apiFetch(`/api/sheets/sheet-id?user_id=${userId}`),
+  startNewMonth: (userId, newSheetId) =>
+    apiFetch(`/api/sheets/new-month?user_id=${userId}`, { method: "POST", body: { new_sheet_id: newSheetId } }),
 };
 
 export default API;

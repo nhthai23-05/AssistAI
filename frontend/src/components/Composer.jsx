@@ -49,7 +49,6 @@ export function Composer({ value, onChange, onSend, onStop, isTyping, modelLabel
             rows={1}
           />
           <div className="composer-toolbar">
-            <button className="cmp-btn" title="Đính kèm file"><I.Paperclip/></button>
             <button className="cmp-btn" title="Đính kèm ảnh" onClick={() => fileRef.current?.click()}>
               <I.Image/>
             </button>
@@ -60,7 +59,6 @@ export function Composer({ value, onChange, onSend, onStop, isTyping, modelLabel
               style={{ display: "none" }}
               onChange={handleImageFile}
             />
-            <button className="cmp-btn" title="Tìm trên web"><I.Globe/> <span>Search</span></button>
             <button className="cmp-btn" title="Nhập bằng giọng nói"><I.Mic/></button>
             <span className="cmp-spacer"/>
             <span style={{ fontSize: 11.5, color: "var(--text-3)", marginRight: 6 }}>{modelLabel}</span>

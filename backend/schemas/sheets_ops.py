@@ -48,7 +48,7 @@ class UpdateBalanceRequest(BaseModel):
 
 class UpdateBudgetRequest(BaseModel):
     category: str = Field(..., min_length=1, max_length=100, description="Category name")
-    budget_amount: float = Field(..., gt=0, description="New budget amount")
+    budget_amount: float = Field(..., ge=0, description="New budget amount")
     is_income: bool = Field(False, description="True for income, False for expense")
 
 
@@ -59,3 +59,30 @@ class ManageCategoryRequest(BaseModel):
 
 class SuccessResponse(BaseModel):
     success: bool = True
+
+
+class BudgetItem(BaseModel):
+    name: str
+    planned: float
+    actual: float = 0.0
+
+
+class BudgetListResponse(BaseModel):
+    expense: List[BudgetItem]
+    income: List[BudgetItem]
+
+
+class NewMonthRequest(BaseModel):
+    new_sheet_id: str = Field(..., min_length=10, description="ID of the new Google Sheet (copied from previous month)")
+
+
+class NewMonthResponse(BaseModel):
+    success: bool
+    new_sheet_id: str
+    opening_balance: float
+    sheet_url: str
+
+
+class SheetConfigResponse(BaseModel):
+    sheet_id: Optional[str]
+    sheet_url: Optional[str]

@@ -56,11 +56,10 @@ function ModelSelector({ models, value, onChange }) {
   );
 }
 
-export function TopBar({ title, model, models, onModelChange }) {
+export function TopBar({ title }) {
   return (
     <header className="topbar">
       <div className="title"><span className="title-text">{title}</span></div>
-      <ModelSelector models={models} value={model} onChange={onModelChange}/>
       <div className="tb-actions">
         <button className="icon-btn" title="Thêm"><I.More/></button>
       </div>

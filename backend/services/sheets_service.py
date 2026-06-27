@@ -7,6 +7,7 @@ from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session
 from services.auth_service import get_credentials_for_user
 from exceptions import GoogleSheetsError, NoOAuthTokenError
+from config.config import settings
 
 
 def get_sheet_service(db: Session, user_id: int):
@@ -168,15 +169,17 @@ def read_income_transactions(
             if not row or all(not str(cell).strip() for cell in row if cell):
                 continue
 
-            date = row[0] if len(row) > 0 else ""
+            date_raw = row[0] if len(row) > 0 else ""
+
+            if not str(date_raw).strip():
+                continue
+
+            date = _normalize_date_format(date_raw)
+
             amount = row[1] if len(row) > 1 else ""
             description = row[2] if len(row) > 2 else ""
             category = row[3] if len(row) > 3 else ""
 
-            if not str(date).strip():
-                continue
-
-            date = _normalize_date_format(date)
             amount = _parse_amount(amount)
 
             rows.append({
@@ -224,7 +227,7 @@ def append_income(
 
         result = service.spreadsheets().values().append(
             spreadsheetId=sheet_id,
-            range=f"{sheet_name}!G:J",
+            range=f"{sheet_name}!G5:J",
             valueInputOption="USER_ENTERED",
             insertDataOption="INSERT_ROWS",
             body={"values": [[date, amount_display + " ₫", description, category]]},
@@ -849,7 +852,7 @@ def update_budget(
 
         return {
             "category": category,
-            "budget": budget_amount,
+            "budget_amount": budget_amount,
             "is_income": is_income,
         }
 
@@ -941,6 +944,106 @@ def add_category(
         raise GoogleSheetsError(f"Sheets API error: {str(e)}")
     except Exception as e:
         raise GoogleSheetsError(f"Failed to add category: {str(e)}")
+
+
+def get_user_sheet_id(db: Session, user_id: int) -> str:
+    """
+    Return the Google Sheet ID for user.
+    Priority: user.google_sheet_id in DB → settings.google_sheet_id from .env
+    """
+    from models.user import User
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if user and user.google_sheet_id:
+        return user.google_sheet_id
+    return settings.google_sheet_id
+
+
+def set_user_sheet_id(db: Session, user_id: int, sheet_id: str) -> None:
+    """Persist a new Google Sheet ID for user in DB."""
+    from models.user import User
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise GoogleSheetsError(f"User {user_id} not found")
+    user.google_sheet_id = sheet_id
+    db.commit()
+
+
+def get_budgets(db: Session, user_id: int, sheet_id: str) -> Dict:
+    """
+    Read category names + planned amounts from "Tóm tắt" sheet.
+    Expense: B26:D41 (col B = name, col D = planned).
+    Income:  H28:J44 (col H = name, col J = planned).
+    Returns {"expense": [{name, planned}], "income": [{name, planned}]}
+    """
+    try:
+        service = get_sheet_service(db, user_id)
+        sheet_name = _get_sheet_by_name(service, sheet_id, "Tóm tắt")
+        if not sheet_name:
+            meta = service.spreadsheets().get(
+                spreadsheetId=sheet_id, fields="sheets.properties.title"
+            ).execute()
+            sheet_name = meta["sheets"][0]["properties"]["title"]
+
+        result = service.spreadsheets().values().batchGet(
+            spreadsheetId=sheet_id,
+            ranges=[
+                f"{sheet_name}!B26:D41",
+                f"{sheet_name}!H28:K44",
+            ],
+        ).execute()
+
+        value_ranges = result.get("valueRanges", [])
+
+        expense_budgets = []
+        for row in value_ranges[0].get("values", []) if value_ranges else []:
+            name = str(row[0]).strip() if len(row) > 0 else ""
+            planned = _parse_amount(row[2]) if len(row) > 2 else 0.0
+            if name:
+                expense_budgets.append({"name": name, "planned": planned})
+
+        income_budgets = []
+        for row in value_ranges[1].get("values", []) if len(value_ranges) > 1 else []:
+            name = str(row[0]).strip() if len(row) > 0 else ""
+            planned = _parse_amount(row[2]) if len(row) > 2 else 0.0
+            actual = _parse_amount(row[3]) if len(row) > 3 else 0.0
+            if name:
+                income_budgets.append({"name": name, "planned": planned, "actual": actual})
+
+        return {"expense": expense_budgets, "income": income_budgets}
+
+    except (NoOAuthTokenError, GoogleSheetsError):
+        raise
+    except HttpError as e:
+        raise GoogleSheetsError(f"Sheets API error: {str(e)}")
+    except Exception as e:
+        raise GoogleSheetsError(f"Failed to get budgets: {str(e)}")
+
+
+def clear_transactions(db: Session, user_id: int, sheet_id: str) -> None:
+    """
+    Clear all transaction rows (row 5 onwards) in the "Giao dịch" sheet.
+    Clears expense columns B:E and income columns G:J, keeps headers.
+    """
+    try:
+        service = get_sheet_service(db, user_id)
+        sheet_name = _get_sheet_by_name(service, sheet_id, "Giao dịch")
+        if not sheet_name:
+            meta = service.spreadsheets().get(
+                spreadsheetId=sheet_id, fields="sheets.properties.title"
+            ).execute()
+            sheet_name = meta["sheets"][0]["properties"]["title"]
+
+        service.spreadsheets().values().batchClear(
+            spreadsheetId=sheet_id,
+            body={"ranges": [f"{sheet_name}!B5:E", f"{sheet_name}!G5:J"]},
+        ).execute()
+
+    except (NoOAuthTokenError, GoogleSheetsError):
+        raise
+    except HttpError as e:
+        raise GoogleSheetsError(f"Sheets API error: {str(e)}")
+    except Exception as e:
+        raise GoogleSheetsError(f"Failed to clear transactions: {str(e)}")
 
 
 def delete_category(

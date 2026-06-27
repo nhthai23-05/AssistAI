@@ -315,7 +315,7 @@ function MonthView({ selected, events, onSelectEvent }) {
   );
 }
 
-function CalendarMain({ selected, events, onSelectEvent, view, onViewChange }) {
+function CalendarMain({ selected, events, onSelectEvent, view, onViewChange, onCreate }) {
   const weekStart = useMemo(() => startOfWeek(selected), [selected]);
   const weekDays  = useMemo(() => Array.from({length:7}, (_,i) => addDays(weekStart, i)), [weekStart]);
 
@@ -354,7 +354,7 @@ function CalendarMain({ selected, events, onSelectEvent, view, onViewChange }) {
           <button className={view==="week" ?"active":""} onClick={() => onViewChange("week")}>Tuần</button>
           <button className={view==="month"?"active":""} onClick={() => onViewChange("month")}>Tháng</button>
         </div>
-        <button className="cal-create-btn">
+        <button className="cal-create-btn" onClick={onCreate}>
           <I.Plus2/> Tạo sự kiện
         </button>
       </div>
@@ -366,7 +366,7 @@ function CalendarMain({ selected, events, onSelectEvent, view, onViewChange }) {
   );
 }
 
-function EventDetail({ event, onClose, onDelete }) {
+function EventDetail({ event, onClose, onDelete, onEdit }) {
   if (!event) return null;
   const d = new Date(event.start);
   const dateLabel = d.toLocaleDateString("vi-VN", { weekday:"long", day:"2-digit", month:"long", year:"numeric"});
@@ -415,7 +415,7 @@ function EventDetail({ event, onClose, onDelete }) {
         )}
       </div>
       <div className="cal-detail-actions">
-        <button className="tb-btn outline" style={{ justifyContent:"center"}}>
+        <button className="tb-btn outline" style={{ justifyContent:"center"}} onClick={() => onEdit(event)}>
           <I.Pencil/> Sửa
         </button>
         <button className="tb-btn outline danger" style={{ justifyContent:"center"}} onClick={() => onDelete(event)}>
@@ -428,12 +428,109 @@ function EventDetail({ event, onClose, onDelete }) {
 
 const CAL_COLORS = ["violet", "pink", "cyan", "amber", "emerald"];
 
+function EventFormModal({ event, defaultDate, onSave, onClose }) {
+  const isEdit = !!event;
+
+  const toLocal = (ms) => {
+    const d = new Date(ms);
+    const pad = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const initStart = () => {
+    if (event) return toLocal(event.start);
+    const d = new Date(defaultDate || Date.now());
+    d.setHours(9, 0, 0, 0);
+    return toLocal(d.getTime());
+  };
+  const initEnd = () => {
+    if (event) return toLocal(event.end);
+    const d = new Date(defaultDate || Date.now());
+    d.setHours(10, 0, 0, 0);
+    return toLocal(d.getTime());
+  };
+
+  const [summary, setSummary]         = useState(event?.summary || "");
+  const [startDt, setStartDt]         = useState(initStart);
+  const [endDt, setEndDt]             = useState(initEnd);
+  const [description, setDescription] = useState(event?.description || "");
+  const [location, setLocation]       = useState(event?.location || "");
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState("");
+
+  const handle = async (e) => {
+    e.preventDefault();
+    if (!summary.trim()) { setError("Vui lòng nhập tiêu đề sự kiện"); return; }
+    if (new Date(endDt) <= new Date(startDt)) { setError("Thời gian kết thúc phải sau thời gian bắt đầu"); return; }
+    setSaving(true);
+    setError("");
+    try {
+      await onSave({
+        summary: summary.trim(),
+        start_datetime: new Date(startDt).toISOString(),
+        end_datetime: new Date(endDt).toISOString(),
+        ...(description.trim() && { description: description.trim() }),
+        ...(location.trim() && { location: location.trim() }),
+      });
+    } catch (err) {
+      setError(err.message || "Đã có lỗi xảy ra");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center" }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background:"var(--ink-3)", borderRadius:12, padding:24, border:"1px solid var(--ink-5)", width:460, boxShadow:"0 8px 32px rgba(0,0,0,0.3)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+          <div style={{ fontWeight:600, fontSize:15 }}>{isEdit ? "Sửa sự kiện" : "Tạo sự kiện mới"}</div>
+          <button className="icon-btn" onClick={onClose}><I.X/></button>
+        </div>
+        <form className="expense-form" onSubmit={handle}>
+          <div>
+            <label>Tiêu đề *</label>
+            <input className="input" type="text" value={summary} onChange={e => setSummary(e.target.value)} placeholder="Tên sự kiện" autoFocus/>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <label>Bắt đầu</label>
+              <input className="input" type="datetime-local" value={startDt} onChange={e => setStartDt(e.target.value)}/>
+            </div>
+            <div>
+              <label>Kết thúc</label>
+              <input className="input" type="datetime-local" value={endDt} onChange={e => setEndDt(e.target.value)}/>
+            </div>
+          </div>
+          <div>
+            <label>Địa điểm</label>
+            <input className="input" type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="Tuỳ chọn"/>
+          </div>
+          <div>
+            <label>Mô tả</label>
+            <textarea className="input" value={description} onChange={e => setDescription(e.target.value)} placeholder="Ghi chú (tuỳ chọn)" rows={3} style={{ resize:"vertical" }}/>
+          </div>
+          {error && <div style={{ color:"var(--danger)", fontSize:12.5 }}>{error}</div>}
+          <div style={{ display:"flex", gap:8, marginTop:4 }}>
+            <button type="button" className="submit" style={{ background:"var(--ink-3)", flex:1 }} onClick={onClose}>Hủy</button>
+            <button type="submit" className="submit" style={{ flex:2 }} disabled={saving}>
+              {saving ? "Đang lưu…" : isEdit ? "Cập nhật" : "Tạo sự kiện"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function CalendarModule({ userId }) {
   const [selected, setSelected] = useState(new Date());
   const [view, setView]         = useState("week");
   const [events, setEvents]     = useState([]);
   const [activeEvent, setActiveEvent] = useState(null);
   const [loading, setLoading]   = useState(true);
+  const [eventForm, setEventForm] = useState(null); // null | "create" | event object (edit)
 
   useEffect(() => {
     if (!userId) return;
@@ -465,6 +562,34 @@ export function CalendarModule({ userId }) {
     if (payload.selectDay) { setSelected(payload.selectDay); return; }
   };
 
+  const handleSaveEvent = async (data) => {
+    if (typeof eventForm === "object" && eventForm !== null) {
+      await API.updateEvent(userId, eventForm.id, data);
+      const updated = {
+        ...eventForm,
+        summary:     data.summary,
+        start:       new Date(data.start_datetime).getTime(),
+        end:         new Date(data.end_datetime).getTime(),
+        description: data.description || "",
+        location:    data.location || "",
+      };
+      setEvents(prev => prev.map(e => e.id === eventForm.id ? updated : e));
+      if (activeEvent?.id === eventForm.id) setActiveEvent(updated);
+    } else {
+      const res = await API.createEvent(userId, data);
+      setEvents(prev => [...prev, {
+        id:          res.event_id,
+        summary:     data.summary,
+        start:       new Date(data.start_datetime).getTime(),
+        end:         new Date(data.end_datetime).getTime(),
+        description: data.description || "",
+        location:    data.location || "",
+        color:       CAL_COLORS[prev.length % CAL_COLORS.length],
+      }]);
+    }
+    setEventForm(null);
+  };
+
   const handleDelete = async (ev) => {
     try {
       await API.deleteEvent(userId, ev.id);
@@ -477,7 +602,7 @@ export function CalendarModule({ userId }) {
 
   return (
     <>
-      <CalendarSidebar selected={selected} onSelect={setSelected} events={events} onCreate={() => {}}/>
+      <CalendarSidebar selected={selected} onSelect={setSelected} events={events} onCreate={() => setEventForm("create")}/>
       <div style={{ position:"relative", display:"flex", flexDirection:"column", minWidth:0 }}>
         {loading
           ? <div className="module-main" style={{ alignItems:"center", justifyContent:"center", display:"flex" }}>
@@ -489,10 +614,26 @@ export function CalendarModule({ userId }) {
               onSelectEvent={handleEventClick}
               view={view}
               onViewChange={setView}
+              onCreate={() => setEventForm("create")}
             />
         }
-        {activeEvent && <EventDetail event={activeEvent} onClose={() => setActiveEvent(null)} onDelete={handleDelete}/>}
+        {activeEvent && (
+          <EventDetail
+            event={activeEvent}
+            onClose={() => setActiveEvent(null)}
+            onDelete={handleDelete}
+            onEdit={ev => { setEventForm(ev); setActiveEvent(null); }}
+          />
+        )}
       </div>
+      {eventForm !== null && (
+        <EventFormModal
+          event={typeof eventForm === "object" ? eventForm : null}
+          defaultDate={selected}
+          onSave={handleSaveEvent}
+          onClose={() => setEventForm(null)}
+        />
+      )}
     </>
   );
 }

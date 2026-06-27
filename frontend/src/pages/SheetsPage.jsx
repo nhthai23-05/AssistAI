@@ -154,21 +154,21 @@ function SummaryCards({ totalActual, totalPlanned, income, openingBalance, onEdi
   );
 }
 
-function IncomeSummaryCards({ total, items, openingBalance }) {
-  const byCat = useMemo(() => {
-    const m = {};
-    items.forEach(e => { m[e.category] = (m[e.category] || 0) + e.amount; });
-    return m;
-  }, [items]);
-
-  const topCat = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0];
+function IncomeSummaryCards({ incomeBudgets, openingBalance }) {
+  const totalActual = useMemo(() => incomeBudgets.reduce((s, b) => s + b.actual, 0), [incomeBudgets]);
+  const totalPlanned = useMemo(() => incomeBudgets.reduce((s, b) => s + b.planned, 0), [incomeBudgets]);
+  const topCat = useMemo(() => {
+    const sorted = [...incomeBudgets].sort((a, b) => b.actual - a.actual);
+    return sorted[0]?.actual > 0 ? sorted[0] : null;
+  }, [incomeBudgets]);
+  const activeCats = incomeBudgets.filter(b => b.actual > 0).length;
 
   return (
     <div className="sh-summary">
       <div className="sh-card featured" style={{ borderColor: "#16a34a44" }}>
-        <div className="lbl">Tổng thu nhập</div>
-        <div className="val" style={{ color: "var(--success)" }}>{fmtVND(total)}</div>
-        <div className="sub">{items.length} giao dịch ghi nhận</div>
+        <div className="lbl">Tổng thu nhập thực tế</div>
+        <div className="val" style={{ color: "var(--success)" }}>{fmtVND(totalActual)}</div>
+        <div className="sub">Dự kiến: {fmtVND(totalPlanned)}</div>
       </div>
       <div className="sh-card">
         <div className="lbl">Số dư đầu kỳ</div>
@@ -178,13 +178,13 @@ function IncomeSummaryCards({ total, items, openingBalance }) {
       <div className="sh-card">
         <div className="lbl">Danh mục nhiều nhất</div>
         <div className="val" style={{ fontSize: 15, color: topCat ? "var(--success)" : "var(--text-3)" }}>
-          {topCat ? topCat[0] : "—"}
+          {topCat ? topCat.name : "—"}
         </div>
-        <div className="sub">{topCat ? fmtVND(topCat[1]) : "Chưa có giao dịch"}</div>
+        <div className="sub">{topCat ? fmtVND(topCat.actual) : "Chưa có thu nhập"}</div>
       </div>
       <div className="sh-card">
-        <div className="lbl">Danh mục có GD</div>
-        <div className="val">{Object.keys(byCat).length}</div>
+        <div className="lbl">Danh mục có thu nhập</div>
+        <div className="val">{activeCats}</div>
         <div className="sub">trong kỳ này</div>
       </div>
     </div>
@@ -210,7 +210,7 @@ function CategoryBreakdown({ categories, expenses, onEditBudget }) {
         <div className="sub">{fmtVND(totalActual)} đã chi · {rows.filter(r => r.actual > 0).length} danh mục</div>
       </div>
       <div className="cat-list">
-        {rows.filter(r => r.planned > 0 || r.actual > 0).map(r => {
+        {rows.map(r => {
           const max = Math.max(r.planned, r.actual, 1);
           const actualPct = (r.actual / max) * 100;
           const plannedPct = (r.planned / max) * 100;
@@ -255,44 +255,48 @@ function CategoryBreakdown({ categories, expenses, onEditBudget }) {
   );
 }
 
-function IncomeCategoryBreakdown({ incomeCategories, incomeItems, onEditBudget }) {
-  const totals = useMemo(() => {
-    const m = {};
-    incomeItems.forEach(e => { m[e.category] = (m[e.category] || 0) + e.amount; });
-    return m;
-  }, [incomeItems]);
-
-  const totalIncome = Object.values(totals).reduce((s, v) => s + v, 0);
+function IncomeCategoryBreakdown({ incomeBudgets, onEditBudget }) {
+  const totalActual = useMemo(() => incomeBudgets.reduce((s, b) => s + b.actual, 0), [incomeBudgets]);
+  const totalPlanned = useMemo(() => incomeBudgets.reduce((s, b) => s + b.planned, 0), [incomeBudgets]);
 
   return (
     <div className="sh-panel" style={{ flex: 1 }}>
       <div className="sh-panel-head">
         <div className="h">Thu theo danh mục</div>
-        <div className="sub">{fmtVND(totalIncome)} · {incomeCategories.length} danh mục</div>
+        <div className="sub">{fmtVND(totalActual)} thực tế · {fmtVND(totalPlanned)} dự kiến</div>
       </div>
       <div className="cat-list">
-        {incomeCategories.map(name => {
-          const actual = totals[name] || 0;
-          const pct = totalIncome > 0 ? (actual / totalIncome) * 100 : 0;
+        {incomeBudgets.map(b => {
+          const max = Math.max(b.planned, b.actual, 1);
+          const actualPct = (b.actual / max) * 100;
+          const plannedPct = (b.planned / max) * 100;
+          const overPlan = b.actual > b.planned && b.planned > 0;
+          const pctOfPlan = b.planned > 0 ? Math.round((b.actual / b.planned) * 100) : null;
           return (
-            <div key={name} className="cat-row">
+            <div key={b.name} className="cat-row">
               <div className="cat-dot" style={{ background: INCOME_COLOR }} />
               <div className="cat-info">
                 <div className="name">
-                  <span>{name}</span>
-                  <b style={{ color: actual > 0 ? "var(--success)" : "var(--text-3)" }}>{fmtVND(actual)}</b>
+                  <span>{b.name}</span>
+                  <span className="amt-pair">
+                    <b style={{ color: b.actual > 0 ? "var(--success)" : "var(--text-3)" }}>{fmtVND(b.actual)}</b>
+                    {b.planned > 0 && <span> / {fmtVND(b.planned)}</span>}
+                  </span>
                 </div>
                 <div className="cat-bar">
-                  <div className="fill" style={{ width: pct + "%", background: INCOME_COLOR }} />
+                  <div className="fill" style={{ width: actualPct + "%", background: overPlan ? "#22c55e" : INCOME_COLOR }} />
+                  {b.planned > 0 && b.actual !== b.planned && (
+                    <div className="planned-marker" style={{ left: plannedPct + "%" }} />
+                  )}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div className="cat-pct">{totalIncome > 0 ? Math.round(pct) + "%" : "—"}</div>
+                <div className="cat-pct">{pctOfPlan != null ? pctOfPlan + "%" : "—"}</div>
                 {onEditBudget && (
                   <button
                     className="icon-btn"
                     style={{ fontSize: 11, padding: "2px 6px", opacity: 0.6 }}
-                    onClick={() => onEditBudget({ name, color: INCOME_COLOR, planned: 0 })}
+                    onClick={() => onEditBudget({ name: b.name, color: INCOME_COLOR, planned: b.planned })}
                     title="Sửa ngân sách"
                   >✏️</button>
                 )}
@@ -300,9 +304,9 @@ function IncomeCategoryBreakdown({ incomeCategories, incomeItems, onEditBudget }
             </div>
           );
         })}
-        {incomeCategories.length === 0 && (
+        {incomeBudgets.length === 0 && (
           <div style={{ textAlign: "center", padding: "24px", color: "var(--text-3)", fontSize: 13 }}>
-            Chưa có danh mục thu nhập. Nhấn "Danh mục Thu" để thêm.
+            Chưa có danh mục thu nhập.
           </div>
         )}
       </div>
@@ -592,7 +596,7 @@ function EditBudgetModal({ category, isIncome, onSave, onClose }) {
   const handle = async (e) => {
     e.preventDefault();
     const n = parseInt(String(amount).replace(/[^\d]/g, ""), 10);
-    if (!n) return;
+    if (isNaN(n) || n < 0) return;
     setSaving(true);
     await onSave({ category: category.name, budget_amount: n, is_income: isIncome });
     setSaving(false);
@@ -801,14 +805,71 @@ function TransactionsTable({ expenses, categories, filter, isIncome, onEdit, onD
   );
 }
 
+function NewMonthModal({ userId, onClose, onDone }) {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const extractSheetId = (val) => {
+    const m = val.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    return m ? m[1] : val.trim();
+  };
+
+  const handle = async () => {
+    const sid = extractSheetId(input);
+    if (sid.length < 10) { setError("Link hoặc ID không hợp lệ."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      await API.startNewMonth(userId, sid);
+      onDone();
+    } catch (e) {
+      setError(e.message || "Có lỗi xảy ra.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "var(--ink-3)", borderRadius: 14, padding: 28, width: 460, boxShadow: "0 8px 32px rgba(0,0,0,0.35)", border: "1px solid var(--ink-5)" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>🗓 Bắt đầu tháng mới</div>
+        <p style={{ fontSize: 13, color: "var(--text-3)", marginBottom: 18, lineHeight: 1.6 }}>
+          Trong Google Drive, mở sheet tháng này → <b>File → Tạo bản sao</b> → đặt tên tháng mới.<br />
+          Sau đó dán link hoặc Sheet ID của bản sao đó vào đây.
+        </p>
+        <label style={{ fontSize: 12, color: "var(--text-3)", display: "block", marginBottom: 6 }}>Link hoặc Sheet ID của sheet tháng mới</label>
+        <input
+          className="input"
+          style={{ width: "100%", marginBottom: 6 }}
+          placeholder="https://docs.google.com/spreadsheets/d/..."
+          value={input}
+          onChange={e => { setInput(e.target.value); setError(""); }}
+          disabled={loading}
+        />
+        {error && <div style={{ color: "var(--danger)", fontSize: 12, marginBottom: 8 }}>{error}</div>}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+          <button className="tb-btn outline" onClick={onClose} disabled={loading}>Hủy</button>
+          <button
+            className="cal-create-btn"
+            onClick={handle}
+            disabled={loading || !input.trim()}
+          >
+            {loading ? "Đang xử lý..." : "Xác nhận"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SheetsMain({
-  activeTab, expenseItems, incomeItems, categories, incomeCategories,
+  activeTab, expenseItems, incomeItems, categories, incomeCategories, incomeBudgets,
   filter, onAddExpense, onAddIncome, addOpen, setAddOpen, summary,
-  onEdit, onDeleteExpense, onDeleteIncome, onEditBalance, onEditBudget, onManageCategories, sheetUrl
+  onEdit, onDeleteExpense, onDeleteIncome, onEditBalance, onEditBudget, onManageCategories, sheetUrl, onNewMonth
 }) {
   const totalExpense = useMemo(() => expenseItems.reduce((s, e) => s + e.amount, 0), [expenseItems]);
   const totalPlanned = useMemo(() => categories.reduce((s, c) => s + c.planned, 0), [categories]);
-  const totalIncome = useMemo(() => incomeItems.reduce((s, e) => s + e.amount, 0), [incomeItems]);
 
   const isIncome = activeTab === "thu";
   const incomeCatObjs = incomeCategories.map(n => ({ name: n, color: INCOME_COLOR }));
@@ -826,6 +887,9 @@ function SheetsMain({
         <div style={{ flex: 1 }} />
         <button className="tb-btn outline" onClick={onManageCategories}>
           Danh mục {isIncome ? "Thu" : "Chi"}
+        </button>
+        <button className="tb-btn outline" onClick={onNewMonth} title="Chuyển sang sheet tháng mới">
+          🗓 Tháng mới
         </button>
         <button
           className="tb-btn outline"
@@ -847,7 +911,7 @@ function SheetsMain({
       <div className="sh-content">
         {isIncome ? (
           <>
-            <IncomeSummaryCards total={totalIncome} items={incomeItems} openingBalance={summary.opening_balance} />
+            <IncomeSummaryCards incomeBudgets={incomeBudgets} openingBalance={summary.opening_balance} />
             {addOpen && (
               <AddTransactionForm
                 isIncome={true}
@@ -856,7 +920,7 @@ function SheetsMain({
                 onClose={() => setAddOpen(false)}
               />
             )}
-            <IncomeCategoryBreakdown incomeCategories={incomeCategories} incomeItems={incomeItems} onEditBudget={onEditBudget} />
+            <IncomeCategoryBreakdown incomeBudgets={incomeBudgets} onEditBudget={onEditBudget} />
             <TransactionsTable
               expenses={incomeItems}
               categories={incomeCatObjs}
@@ -908,6 +972,7 @@ export function SheetsModule({ userId }) {
   const [incomeItems, setIncomeItems] = useState([]);
   const [categories, setCategories] = useState(EXPENSE_CATEGORIES);
   const [incomeCategories, setIncomeCategories] = useState([]);
+  const [incomeBudgets, setIncomeBudgets] = useState([]);
   const [filter, setFilter] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -920,6 +985,7 @@ export function SheetsModule({ userId }) {
   const [editingBudget, setEditingBudget] = useState(null);
   const [showCategories, setShowCategories] = useState(false);
   const [sheetUrl, setSheetUrl] = useState(null);
+  const [showNewMonth, setShowNewMonth] = useState(false);
 
   const isIncome = activeTab === "thu";
 
@@ -932,21 +998,32 @@ export function SheetsModule({ userId }) {
       API.getCategories(userId),
       API.getIncomeCategories(userId),
       API.getSummary(userId),
+      API.getBudgets(userId).catch(() => null),
     ])
-      .then(([expData, incData, catData, incomeCatData, summaryData]) => {
+      .then(([expData, incData, catData, incomeCatData, summaryData, budgetData]) => {
         setExpenses(Array.isArray(expData) ? expData : []);
         setIncomeItems(Array.isArray(incData) ? incData : []);
 
         const names = catData.categories || [];
         if (names.length > 0) {
+          // Build planned lookup from sheet (live), fallback to hardcoded colors/amounts
+          const apiPlanned = {};
+          if (budgetData?.expense) {
+            budgetData.expense.forEach(b => { apiPlanned[b.name] = b.planned; });
+          }
           const merged = names.map(name => {
             const local = EXPENSE_CATEGORIES.find(c => c.name === name);
-            return local || { name, color: "#9ca3af", planned: 0 };
+            const planned = name in apiPlanned ? apiPlanned[name] : (local?.planned ?? 0);
+            return { name, color: local?.color ?? "#9ca3af", planned };
           });
           setCategories(merged);
         }
 
         setIncomeCategories(incomeCatData.categories || []);
+
+        if (budgetData?.income) {
+          setIncomeBudgets(budgetData.income);
+        }
 
         if (summaryData) {
           setSummary(summaryData);
@@ -967,8 +1044,8 @@ export function SheetsModule({ userId }) {
 
   const handleAddExpense = async (item) => {
     try {
-      await API.addExpense(userId, item);
-      setExpenses(prev => [item, ...prev]);
+      const result = await API.addExpense(userId, item);
+      setExpenses(prev => [result.data, ...prev]);
     } catch (err) {
       alert("Không thể lưu: " + err.message);
     }
@@ -976,8 +1053,8 @@ export function SheetsModule({ userId }) {
 
   const handleAddIncome = async (item) => {
     try {
-      await API.addIncome(userId, item);
-      setIncomeItems(prev => [item, ...prev]);
+      const result = await API.addIncome(userId, item);
+      setIncomeItems(prev => [result.data, ...prev]);
     } catch (err) {
       alert("Không thể lưu: " + err.message);
     }
@@ -1040,6 +1117,15 @@ export function SheetsModule({ userId }) {
   const handleSaveBudget = async (data) => {
     try {
       await API.updateBudget(userId, data);
+      if (data.is_income) {
+        setIncomeBudgets(prev => prev.map(b =>
+          b.name === data.category ? { ...b, planned: data.budget_amount } : b
+        ));
+      } else {
+        setCategories(prev => prev.map(c =>
+          c.name === data.category ? { ...c, planned: data.budget_amount } : c
+        ));
+      }
       setEditingBudget(null);
     } catch (err) {
       alert("Không thể cập nhật ngân sách: " + err.message);
@@ -1069,6 +1155,7 @@ export function SheetsModule({ userId }) {
         incomeItems={incomeItems}
         categories={categories}
         incomeCategories={incomeCategories}
+        incomeBudgets={incomeBudgets}
         filter={filter}
         onAddExpense={handleAddExpense}
         onAddIncome={handleAddIncome}
@@ -1082,6 +1169,7 @@ export function SheetsModule({ userId }) {
         onEditBudget={setEditingBudget}
         onManageCategories={() => setShowCategories(true)}
         sheetUrl={sheetUrl}
+        onNewMonth={() => setShowNewMonth(true)}
       />
 
       {editingItem && (
@@ -1108,6 +1196,14 @@ export function SheetsModule({ userId }) {
           isIncome={isIncome}
           onSave={handleSaveBudget}
           onClose={() => setEditingBudget(null)}
+        />
+      )}
+
+      {showNewMonth && (
+        <NewMonthModal
+          userId={userId}
+          onClose={() => setShowNewMonth(false)}
+          onDone={() => { setShowNewMonth(false); loadData(); }}
         />
       )}
 

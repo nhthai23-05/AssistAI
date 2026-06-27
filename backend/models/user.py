@@ -12,6 +12,7 @@ class User(TimestampMixin, Base):
     user_id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    google_sheet_id = Column(String(500), nullable=True)
 
     # Relationships
     calendars = relationship("Calendar", back_populates="user", cascade="all, delete-orphan")
