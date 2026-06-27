@@ -1036,6 +1036,12 @@ export function SheetsModule({ userId }) {
 
   useEffect(() => { loadData(); }, [userId]);
 
+  useEffect(() => {
+    const handler = () => loadData();
+    window.addEventListener("assistai:refresh:sheets", handler);
+    return () => window.removeEventListener("assistai:refresh:sheets", handler);
+  }, [userId]);
+
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setFilter("all");

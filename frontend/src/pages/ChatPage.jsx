@@ -255,6 +255,11 @@ export function ChatModule({ userId, userEmail }) {
       } else if (action.type === "delete_event") {
         await API.deleteEvent(userId, action.data.event_id);
       }
+      if (["create_event", "update_event", "delete_event"].includes(action.type)) {
+        window.dispatchEvent(new CustomEvent("assistai:refresh:calendar"));
+      } else if (["write_sheet", "write_income_sheet"].includes(action.type)) {
+        window.dispatchEvent(new CustomEvent("assistai:refresh:sheets"));
+      }
       if (messageId) API.updateActionStatus(userId, messageId, actionIdx, "accepted").catch(err => console.error("Failed to persist action status:", err));
     } catch (err) {
       // Roll back and show error

@@ -532,7 +532,7 @@ export function CalendarModule({ userId }) {
   const [loading, setLoading]   = useState(true);
   const [eventForm, setEventForm] = useState(null); // null | "create" | event object (edit)
 
-  useEffect(() => {
+  const loadEvents = () => {
     if (!userId) return;
     setLoading(true);
     API.getEvents(userId, 90, 30)
@@ -551,6 +551,14 @@ export function CalendarModule({ userId }) {
       })
       .catch(err => console.error("Failed to load events:", err))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadEvents(); }, [userId]);
+
+  useEffect(() => {
+    const handler = () => loadEvents();
+    window.addEventListener("assistai:refresh:calendar", handler);
+    return () => window.removeEventListener("assistai:refresh:calendar", handler);
   }, [userId]);
 
   const handleEventClick = (payload) => {
