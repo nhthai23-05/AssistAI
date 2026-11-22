@@ -43,3 +43,16 @@ backend/evals/results/
 # Frontend (Vite)
 frontend/node_modules/
 frontend/dist/
+
+# Research: paper và ghi chú cá nhân, không commit
+research/
+
+# Time series: dữ liệu và môi trường ảo
+timeseries/data/
+timeseries/.venv/
+
+# Time series: báo cáo, nhật ký, hình EDA, kết quả và log chạy — chỉ giữ local, không đẩy lên git
+timeseries/BAO_CAO_*.md
+timeseries/NHAT_KY.md
+timeseries/eda/
+timeseries/results/
